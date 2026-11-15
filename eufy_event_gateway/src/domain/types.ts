@@ -240,6 +240,12 @@ export interface CameraState {
   /** Exact route support for bounded speaker audio, independent of microphone streaming. */
   readonly talkbackSupported?: boolean;
 
+  /** Opt-in live microphone input, separate from prepared speaker uploads. */
+  readonly liveTalkbackSupported?: boolean;
+
+  /** Stable opted-in delivery mode, independent of temporary speaker readiness. */
+  readonly liveTalkbackEnabled?: boolean;
+
   /** The direct route supports verified SD event retrieval; card presence is checked on access. */
   readonly storedRecordingsSupported?: boolean;
   readonly doorbellSupported: boolean;
@@ -635,6 +641,12 @@ export interface CameraIdentity {
 
   /** Exact route support for bounded speaker audio, independent of microphone streaming. */
   readonly talkbackSupported?: boolean;
+
+  /** Opt-in live microphone input, separate from prepared speaker uploads. */
+  readonly liveTalkbackSupported?: boolean;
+
+  /** Stable opted-in delivery mode, independent of temporary speaker readiness. */
+  readonly liveTalkbackEnabled?: boolean;
   readonly doorbellSupported: boolean;
   readonly enabled?: boolean | null;
   readonly enableControlSupported?: boolean;

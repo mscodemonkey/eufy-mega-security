@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import tempfile
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -26,6 +27,17 @@ from homeassistant.components.camera import (
     CameraEntityFeature,
     async_request_stream,
 )
+try:
+    from homeassistant.components.camera import WebRTCAnswer, WebRTCError
+except ImportError:
+    WebRTCAnswer = None
+    WebRTCError = None
+
+try:
+    from homeassistant.components.camera import CameraEntityCapabilities
+except ImportError:
+    CameraEntityCapabilities = None
+
 from homeassistant.components.stream.const import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
 from homeassistant.const import ATTR_ENTITY_ID, CONF_FILENAME
 from homeassistant.core import HomeAssistant, SupportsResponse, callback
@@ -106,14 +118,25 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     known: set[str] = set()
     known_lenses: set[str] = set()
+    live_modes: dict[str, bool] = {}
+    reload_pending = False
     registry = er.async_get(hass)
 
     def add_new() -> None:
+        nonlocal reload_pending
+        for serial, enabled in live_modes.items():
+            camera = coordinator.cameras.get(serial)
+            if camera is not None and _live_talkback_camera(camera) != enabled:
+                if not reload_pending:
+                    reload_pending = True
+                    hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+                return
         serials = set(coordinator.cameras) - known
         if serials:
             known.update(serials)
+            live_modes.update({serial: _live_talkback_camera(coordinator.cameras[serial]) for serial in serials})
             entities = [
-                EufyGatewayCamera(
+                (EufyGatewayLiveTalkbackCamera if _live_talkback_camera(coordinator.cameras[serial]) else EufyGatewayCamera)(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
                     fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
@@ -921,3 +944,142 @@ def _read_speaker_audio(filename: str) -> bytes:
     if not data or len(data) > 320_000:
         raise ValueError("Speaker audio exceeds its size limit")
     return data
+
+
+
+def _live_talkback_camera(camera: dict[str, Any]) -> bool:
+    """Keep native WebRTC detection confined to the opted-in exact C31 class."""
+    return (WebRTCAnswer is not None and WebRTCError is not None
+            and camera.get("liveTalkbackEnabled") is True
+            and camera.get("model") == "T817L" and camera.get("deviceType") == 10031)
+
+
+@dataclass
+class _LiveTalkbackSession:
+    """Own one HA viewer's returned peer ID and candidates pending its answer."""
+
+    gateway_id: str | None = None
+    closed: bool = False
+    candidates: list[dict[str, Any] | None] = field(default_factory=list)
+
+
+class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
+    """Own native C31 viewer signalling while the gateway owns its media and audio.
+
+    Normal cameras keep their HLS class. Each HA session maps only to its own
+    returned gateway ID. Pending offers and ICE are bounded, and removal closes
+    known peers while a late answer retires itself. Microphone access belongs to
+    HA's user-initiated HTTPS player, never to this entity.
+    """
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, **options: Any) -> None:
+        """Bind the existing camera identity and initialise transient signalling."""
+        self._talkback_sessions: dict[str, _LiveTalkbackSession] = {}
+        self._talkback_offer_lock = asyncio.Lock()
+        self._talkback_removed = False
+        super().__init__(coordinator, serial, **options)
+        if CameraEntityCapabilities is not None:
+            self._attr_camera_entity_capabilities = CameraEntityCapabilities(two_way_audio=self.camera.get("liveTalkbackSupported") is True)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Withdraw a muted or unready microphone while keeping the viewer available."""
+        if CameraEntityCapabilities is not None:
+            self._attr_camera_entity_capabilities = CameraEntityCapabilities(
+                two_way_audio=self.camera.get("liveTalkbackSupported") is True
+            )
+        super()._handle_coordinator_update()
+
+    async def async_handle_async_webrtc_offer(self, offer_sdp: str, session_id: str, send_message: Any) -> None:
+        """Answer a normal HA camera offer and retire a superseded exact peer."""
+        record = _LiveTalkbackSession()
+        answered = False
+        try:
+            async with self._talkback_offer_lock:
+                if self._talkback_removed or not _live_talkback_camera(self.camera):
+                    raise GatewayClientError("Live talkback unavailable")
+                previous = self._talkback_sessions.get(session_id)
+                if previous:
+                    previous.closed = True
+                    await self._async_close_talkback(previous)
+                if len(self._talkback_sessions) >= 2 and session_id not in self._talkback_sessions:
+                    raise GatewayClientError("Live talkback unavailable")
+                self._talkback_sessions[session_id] = record
+                answer = await self.coordinator.client.live_talkback_offer(self.serial, offer_sdp)
+                record.gateway_id = answer["sessionId"]
+                if record.closed or self._talkback_removed or not _live_talkback_camera(self.camera):
+                    await self._async_close_talkback(record)
+                    return
+                for candidate in record.candidates:
+                    await self.coordinator.client.live_talkback_candidate(self.serial, record.gateway_id, candidate)
+                record.candidates.clear()
+                send_message(WebRTCAnswer(answer=answer["sdp"]))
+                answered = True
+        except asyncio.CancelledError:
+            record.closed = True
+            await self._async_close_talkback(record)
+            raise
+        except GatewayClientError:
+            record.closed = True
+            await self._async_close_talkback(record)
+            if not self._talkback_removed and WebRTCError is not None:
+                send_message(WebRTCError(code="stream_failed", message="Live talkback couldn't start. Please reopen the view."))
+        finally:
+            if not answered:
+                record.closed = True
+                await self._async_close_talkback(record)
+            if record.closed and self._talkback_sessions.get(session_id) is record:
+                self._talkback_sessions.pop(session_id, None)
+
+    async def async_on_webrtc_candidate(self, session_id: str, candidate: Any) -> None:
+        """Queue early ICE for its pending offer, without forwarding it to another peer."""
+        record = self._talkback_sessions.get(session_id)
+        if record is None or record.closed or self._talkback_removed:
+            return
+        value = asdict(candidate) if is_dataclass(candidate) else candidate
+        if value is not None and (not isinstance(value, dict) or not isinstance(value.get("candidate"), str)
+                or len(value["candidate"]) > 2048):
+            self.close_webrtc_session(session_id)
+            return
+        if record.gateway_id is None:
+            if len(record.candidates) >= 32:
+                self.close_webrtc_session(session_id)
+                return
+            record.candidates.append(dict(value) if value is not None else None)
+        else:
+            try:
+                await self.coordinator.client.live_talkback_candidate(self.serial, record.gateway_id, value)
+            except GatewayClientError:
+                self.close_webrtc_session(session_id)
+
+    @callback
+    def close_webrtc_session(self, session_id: str) -> None:
+        """Close only this viewer, keeping a pending offer marked for late cleanup."""
+        record = self._talkback_sessions.get(session_id)
+        if record is None:
+            return
+        record.closed = True
+        record.candidates.clear()
+        if record.gateway_id:
+            self._talkback_sessions.pop(session_id, None)
+            self.hass.async_create_task(self._async_close_talkback(record))
+
+    async def _async_close_talkback(self, record: _LiveTalkbackSession) -> None:
+        """Retire one returned gateway ID without retrying microphone content."""
+        if record.gateway_id:
+            session, record.gateway_id = record.gateway_id, None
+            try:
+                await self.coordinator.client.close_live_talkback(self.serial, session)
+            except GatewayClientError:
+                _LOGGER.debug("Live talkback cleanup was not confirmed")
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop known peers and make every late offer retire instead of publishing."""
+        self._talkback_removed = True
+        records = list(self._talkback_sessions.values())
+        for record in records:
+            record.closed = True
+            record.candidates.clear()
+        await asyncio.gather(*(self._async_close_talkback(record) for record in records))
+        self._talkback_sessions.clear()
+        await super().async_will_remove_from_hass()

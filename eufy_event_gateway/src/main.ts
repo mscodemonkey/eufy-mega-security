@@ -106,6 +106,7 @@ if (config.provider === "simulated") {
     apiAuthenticationConfigured: !!config.apiToken,
     experimentalDoorbellRtc: config.experimentalDoorbellRtc,
     experimentalGeneralRtc: config.experimentalGeneralRtc,
+    experimentalC31LiveTalkback: config.experimentalC31LiveTalkback === true,
     experimentalCloudRecordings: config.experimentalCloudRecordings,
     experimentalEventImageRequest: config.experimentalEventImageRequest,
     experimentalHomeBaseEventImages: config.experimentalHomeBaseEventImages,

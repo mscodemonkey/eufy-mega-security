@@ -31,6 +31,7 @@ export EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE="$(jq -r '.experimental_t8420_live /
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_MODE_OBSERVER="$(jq -r '.experimental_nvr_mode_observer // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC="$(jq -r '.experimental_doorbell_rtc // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC="$(jq -r '.experimental_general_rtc // false' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_C31_LIVE_TALKBACK="$(jq -r '.experimental_c31_live_talkback // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS="$(jq -r '.experimental_cloud_recordings // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE="$(jq -r '.experimental_s340_smooth_live // false' "$options")"

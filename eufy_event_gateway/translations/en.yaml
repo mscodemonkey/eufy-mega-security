@@ -23,6 +23,9 @@ configuration:
   experimental_doorbell_rtc:
     name: Experimental standalone doorbell video test
     description: Enable a consented ten-second private video test in Diagnostics for a standalone Video Doorbell C30. Normal streaming stays unchanged. Hardware behaviour is unconfirmed. Off by default.
+  experimental_c31_live_talkback:
+    name: C31 live talkback (experimental)
+    description: Try microphone audio in the normal C31 camera viewer. The microphone button needs Home Assistant 2026.11 or later, its Two-way audio Labs option and HTTPS. Views are limited to two minutes. Private raw-message history, when enabled, can retain speaker audio. Off by default. Audible output needs confirmation.
   experimental_general_rtc:
     name: Experimental general camera video test
     description: Enable a consented ten-second private video test in Diagnostics for a supported camera on the owner account. A guest account is refused. The Eufy live-view PIN you enter is sent to Eufy and is not stored. Excludes cameras on an NVR and the T8224 doorbell. Hardware behaviour is unconfirmed. Off by default.
