@@ -3520,8 +3520,8 @@ export class FirstPartyPpcsSession {
     }
 
     if (command === 1351 && this.#attachedQuality.busy && frameChannel === this.#options.channel
-      && (signCode === 2 || signCode === 8) && payload.length <= 4096 && this.#level2Key) {
-      const reply = decodePpcsControlRecord(payload, signCode,
+      && payload.length <= 4096) {
+      const reply = decodeAttachedT8171QualityReply(payload, signCode,
         commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
       if (reply && this.#attachedQuality.accept(reply, frameChannel)) return;
     }
@@ -4581,6 +4581,31 @@ export function decodePpcsControlRecord(
     if (clear && clear !== payload) clear.fill(0);
     try { observe?.(outcome); } catch {}
   }
+}
+
+/**
+ * Decode the exact attached T8171's observed encrypted quality reply schemes.
+ * The owning session supplies peer/channel admission and the controller checks
+ * its pending transaction. Legacy ECB provides no authentication and is never
+ * used as a fallback for failed GCM. Its observed C-string terminator excludes
+ * unspecified block padding. Clear or unknown schemes are rejected.
+ */
+export function decodeAttachedT8171QualityReply(
+  payload: Buffer, signCode: number, level1Key: Buffer, level2Key: Buffer | null,
+): Record<string, unknown> | undefined {
+  if (payload.length > 4096 || ![1, 2, 8].includes(signCode)) return undefined;
+  let value: Record<string, unknown> | undefined;
+  if (signCode === 1) {
+    if (payload.length === 0 || payload.length % 16 !== 0) return undefined;
+    let clear: Buffer | undefined;
+    try {
+      clear = decryptEcb(payload, level1Key);
+      const terminator = clear.indexOf(0);
+      value = parsePpcsControlRecord(terminator < 0 ? clear : clear.subarray(0, terminator));
+    } catch { return undefined; }
+    finally { clear?.fill(0); }
+  } else value = decodePpcsControlRecord(payload, signCode, level1Key, level2Key);
+  return value?.cmd === 2730 ? value : undefined;
 }
 
 /** Parse one decrypted control reply, accepting only complete JSON with validated NUL or PKCS7 padding. */

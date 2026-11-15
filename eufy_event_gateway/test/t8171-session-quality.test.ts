@@ -1,15 +1,43 @@
 /**
  * Exercises captured-shape live-quality requests with synthetic identities only.
- * The tests own controller clocks, requests and authenticated-reply stand-ins.
+ * The tests own controller clocks, requests and encrypted-reply stand-ins.
  * They establish correlation and retirement, never physical camera behaviour.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCipheriv } from "node:crypto";
 import { isT8171SessionQualityRoute, T8171SessionQuality, t8171SessionQualityValue } from "../src/provider/t8171-session-quality.js";
-import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { decodeAttachedT8171QualityReply, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
 const route = { model: "T8171", deviceType: 88, peerModel: "T8030", peerDeviceType: 18,
   channel: 1, homeBaseAttached: true, selfPeer: false };
+
+test("the exact quality receiver accepts its observed legacy reply without clear or GCM fallback", async () => {
+  const state = new T8171SessionQuality(), key = Buffer.alloc(16, 7), gcmKey = Buffer.alloc(32, 9);
+  let record!: Record<string, unknown>;
+  const pending = state.change(1, 1, "synthetic", new AbortController().signal, value => { record = JSON.parse(value); });
+  const { account_id: _owner, ...reply } = record;
+  const clear = Buffer.from(JSON.stringify(reply));
+  const padded = Buffer.alloc(Math.ceil(clear.length / 16) * 16); clear.copy(padded);
+  padded.fill(0x43, clear.length + 1, padded.length - 1);
+  const cipher = createCipheriv("aes-128-ecb", key, null); cipher.setAutoPadding(false);
+  const encrypted = Buffer.concat([cipher.update(padded), cipher.final()]);
+  assert.equal(decodeAttachedT8171QualityReply(clear, 0, key, gcmKey), undefined);
+  assert.equal(decodeAttachedT8171QualityReply(encrypted, 2, key, gcmKey), undefined);
+  assert.equal(decodeAttachedT8171QualityReply(encrypted, 8, key, null), undefined);
+  assert.equal(decodeAttachedT8171QualityReply(encrypted, 9, key, gcmKey), undefined);
+  assert.equal(decodeAttachedT8171QualityReply(encrypted, 1, Buffer.alloc(16, 8), gcmKey), undefined);
+  const nonce = Buffer.alloc(12, 3), gcm = createCipheriv("aes-256-gcm", gcmKey, nonce);
+  gcm.setAAD(Buffer.from("eufy security"));
+  const body = Buffer.concat([gcm.update(clear), gcm.final()]);
+  const authenticated = Buffer.concat([gcm.getAuthTag(), nonce, body]);
+  assert.deepEqual(decodeAttachedT8171QualityReply(authenticated, 2, key, gcmKey), reply);
+  const damaged = Buffer.from(authenticated); damaged[0] = damaged[0]! ^ 1;
+  assert.equal(decodeAttachedT8171QualityReply(damaged, 2, key, gcmKey), undefined);
+  const decoded = decodeAttachedT8171QualityReply(encrypted, 1, key, null);
+  assert.ok(decoded); assert.equal(state.accept(decoded, 1), true); await pending;
+  assert.equal(state.value, 1); state.close();
+});
 
 test("attached quality excludes adjacent models, parent generations and invalid child channels", () => {
   assert.equal(isT8171SessionQualityRoute(route), true);

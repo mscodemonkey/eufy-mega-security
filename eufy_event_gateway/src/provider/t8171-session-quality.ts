@@ -1,6 +1,6 @@
 /**
  * Owns the attached T8171's live-session quality request and correlated reply.
- * The PPCS session supplies authenticated notifications and retires this state
+ * The PPCS session supplies decrypted notifications and retires this state
  * on close. Provider and HA consumers must not treat it as a saved preference.
  */
 import type { ModelControlRoute } from "./model-control-trials.js";
@@ -30,7 +30,7 @@ export function t8171SessionQualityValue(channel: number, quality: number, accou
 
 /**
  * Owns one in-flight quality change and its session-lifetime accepted value.
- * Only the owning PPCS session may pass authenticated replies. A timeout,
+ * Only the owning PPCS session may pass qualified encrypted replies. A timeout,
  * cancellation or close clears the value because dispatch may have succeeded.
  * This is reply evidence, never independent persistent-setting readback.
  */
@@ -48,7 +48,7 @@ export class T8171SessionQuality {
   get busy(): boolean { return this.#pending !== null; }
 
   /**
-   * Dispatch once and wait for the exact authenticated quality echo.
+   * Dispatch once and wait for the exact correlated quality echo.
    * The caller supplies the already-owned channel and must check route and media
    * readiness before entering. Cancellation never retries or closes live view.
    */
