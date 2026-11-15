@@ -16,7 +16,7 @@ import os
 import re
 import secrets
 import tempfile
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import dataclass, field, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -994,6 +994,7 @@ class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
         """Answer a normal HA camera offer and retire a superseded exact peer."""
         record = _LiveTalkbackSession()
         answered = False
+        stage = "offer"
         try:
             async with self._talkback_offer_lock:
                 if self._talkback_removed or not _live_talkback_camera(self.camera):
@@ -1010,9 +1011,11 @@ class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
                 if record.closed or self._talkback_removed or not _live_talkback_camera(self.camera):
                     await self._async_close_talkback(record)
                     return
+                stage = "candidate"
                 for candidate in record.candidates:
                     await self.coordinator.client.live_talkback_candidate(self.serial, record.gateway_id, candidate)
                 record.candidates.clear()
+                stage = "answer"
                 send_message(WebRTCAnswer(answer=answer["sdp"]))
                 answered = True
         except asyncio.CancelledError:
@@ -1020,6 +1023,7 @@ class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
             await self._async_close_talkback(record)
             raise
         except GatewayClientError:
+            _LOGGER.warning("Live talkback failed: stage=%s", stage)
             record.closed = True
             await self._async_close_talkback(record)
             if not self._talkback_removed and WebRTCError is not None:
@@ -1036,7 +1040,17 @@ class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
         record = self._talkback_sessions.get(session_id)
         if record is None or record.closed or self._talkback_removed:
             return
-        value = asdict(candidate) if is_dataclass(candidate) else candidate
+        value = candidate
+        if is_dataclass(candidate):
+            value = {"candidate": getattr(candidate, "candidate", None)}
+            for attribute, wire_key in (
+                ("sdp_mid", "sdpMid"),
+                ("sdp_m_line_index", "sdpMLineIndex"),
+                ("user_fragment", "usernameFragment"),
+            ):
+                field_value = getattr(candidate, attribute, None)
+                if field_value is not None:
+                    value[wire_key] = field_value
         if value is not None and (not isinstance(value, dict) or not isinstance(value.get("candidate"), str)
                 or len(value["candidate"]) > 2048):
             self.close_webrtc_session(session_id)
@@ -1050,6 +1064,7 @@ class EufyGatewayLiveTalkbackCamera(EufyGatewayCamera):
             try:
                 await self.coordinator.client.live_talkback_candidate(self.serial, record.gateway_id, value)
             except GatewayClientError:
+                _LOGGER.warning("Live talkback failed: stage=candidate")
                 self.close_webrtc_session(session_id)
 
     @callback
