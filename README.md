@@ -38,6 +38,8 @@ Optional camera attributes include the device's secondary firmware and explicit 
 
 The exact eufyCam 2C T8113-Z/type 8 now has an opt-in [HomeBase 2 sensitivity trial](docs/HB2_2C_SENSITIVITY.md). Its physical behaviour is unconfirmed. It is labelled experimental and requires fresh setting readback.
 
+An opt-in [HomeBase 2 volume trial](docs/HB2_VOLUME_TRIAL.md) exposes each volume only after its own local value is reported. It retains normal HomeBase number identities and requires fresh account and command confirmation. Physical behaviour is unconfirmed.
+
 An exact HomeBase 3 attached 2C also has a disabled experimental [manual spotlight](docs/T8113_HB3_SPOTLIGHT.md). Its on command owns a shared live-source lease rather than requiring a separately opened viewer. On from idle, staying on and off have been confirmed on the exact owned route. The existing live-source maximum lifetime still applies.
 
 T8171 exposes reported live-view and recording quality, notification style, and standalone controls for infrared mode, motion detection, live-view quality, recorded audio and AI tracking. T8425 exposes watermark mode and anti-theft detection configuration. T8170 exposes its reported spotlight-enable switch and raw motion-sensitivity value. The spotlight switch does not say whether its lamp is currently illuminated, and notification style does not prove delivery. These settings are not inferred for another model merely because it reports the same parameter number.

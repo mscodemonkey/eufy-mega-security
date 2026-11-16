@@ -4940,14 +4940,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (!Number.isInteger(value) || value < 1 || value > 26) throw new Error("HomeBase alarm volume must be from 1 to 26");
-    return this.#writeStationValue(serial, "alarmVolume", value, (session) => session.setAlarmVolume(value));
+    const hb2 = this.#devices.get(serial)?.model === "T8010";
+    if (hb2 && !this.#hb2VolumeTrialReady(serial, "alarmVolume")) throw new Error("HomeBase 2 alarm volume trial unavailable");
+    return this.#writeStationValue(serial, "alarmVolume", value, (session) => session.setAlarmVolume(value), hb2 ? "volume" : "managed");
   }
 
   async setPromptVolume(serial: string, value: number): Promise<HomeBaseState> {
     this.#assertRtcPreparationIdle();
     this.#assertNoModelTrial(serial);
     if (!Number.isInteger(value) || value < 1 || value > 26) throw new Error("HomeBase prompt volume must be from 1 to 26");
-    return this.#writeStationValue(serial, "promptVolume", value, (session) => session.setPromptVolume(value));
+    const hb2 = this.#devices.get(serial)?.model === "T8010";
+    if (hb2 && !this.#hb2VolumeTrialReady(serial, "promptVolume")) throw new Error("HomeBase 2 prompt volume trial unavailable");
+    return this.#writeStationValue(serial, "promptVolume", value, (session) => session.setPromptVolume(value), hb2 ? "volume" : "managed");
   }
 
   async setAlarmTone(serial: string, value: number): Promise<HomeBaseState> {
@@ -5289,7 +5293,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#dskKeys.has(device.serial),
       );
       this.#stations.set(device.serial, station);
-      events.station(station);
+      events.station(this.#withStationVolumeTrials(station));
       logger.info("guard_mode_names_observed", `Guard mode names observed: model=${safeLogModel(device.model)} ${device.guardModeMetadataShape ?? "missing"}`);
       if (device.guardModeMetadataStructure !== undefined) {
         logger.info("guard_mode_metadata_observed", `model=${safeLogModel(device.model)} structure=${device.guardModeMetadataStructure}`);
@@ -5571,7 +5575,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         : initialHomeBaseState(device, this.#dskKeys.has(device.serial));
       this.#stations.set(device.serial, station);
-      events.station(station);
+      events.station(this.#withStationVolumeTrials(station));
     }
     events.inventory(inventoryDiagnostics(devices));
     this.#syncNvrModeObserver();
@@ -6549,7 +6553,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (preserveRtc && station.effectiveModeSource === "nvr_rtc" && this.#nvrModeObservationOwners.has(station.serial)) continue;
       const updated = { ...station, effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null };
       this.#stations.set(station.serial, updated);
-      try { events.station(updated); } catch {}
+      try { events.station(this.#withStationVolumeTrials(updated)); } catch {}
     }
     if (!preserveRtc) this.#nvrModeObservationOwners.clear();
   }
@@ -6571,11 +6575,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         effectiveMode: validGuardMode(event.effectiveMode) ? event.effectiveMode : station.effectiveMode,
       };
       this.#stations.set(station.serial, updated);
-      events.station(updated);
+      events.station(this.#withStationVolumeTrials(updated));
     } else if (station?.controlsSupported && event.eventType === 10 && event.alarmType !== null) {
       const updated = { ...station, alarmActive: ![0, 1, 15, 16, 17].includes(event.alarmType) };
       this.#stations.set(station.serial, updated);
-      events.station(updated);
+      events.station(this.#withStationVolumeTrials(updated));
     }
     const personName = personNameFromPush(event);
     events.pushDiagnostic({
@@ -6718,6 +6722,31 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     else events.detection(event.cameraSerial, detection, true);
   }
 
+  /** Require the exact HB2 model and this account's current owner or administrator role. */
+  #hb2VolumeTrialAccount(device: MegaInventoryDevice | undefined): boolean {
+    return !!device && device.model === "T8010" && device.deviceType === 0 && device.category === "eufy_security"
+      && (!device.parentSerial || device.parentSerial === device.serial) && !!device.adminUserId
+      && (this.#client.isAuthenticatedUser(device.adminUserId) || (device.memberType === 1 || device.memberType === 2)
+        && !!device.memberUserId && this.#client.isAuthenticatedUser(device.memberUserId));
+  }
+
+  /** Keep each volume independent, withholding writes while its local baseline is missing. */
+  #hb2VolumeTrialReady(serial: string, field: "alarmVolume" | "promptVolume"): boolean {
+    const station = this.#stations.get(serial), value = station?.[field];
+    return this.config.experimentalModelControls === true && this.config.apiAuthenticationConfigured === true
+      && this.#client.authenticatedBinding() !== null && this.#hb2VolumeTrialAccount(this.#devices.get(serial))
+      && station?.connected === true && typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 26;
+  }
+
+  /** Publish trial capabilities without granting HB2 the unrelated managed station commands. */
+  #withStationVolumeTrials(station: HomeBaseState): HomeBaseState {
+    const device = this.#devices.get(station.serial);
+    if (device?.model !== "T8010" || device.deviceType !== 0 || !this.config.experimentalModelControls) return station;
+    return { ...station, volumeControlsExperimental: true,
+      alarmVolumeControlSupported: this.#hb2VolumeTrialReady(station.serial, "alarmVolume"),
+      promptVolumeControlSupported: this.#hb2VolumeTrialReady(station.serial, "promptVolume") };
+  }
+
   async #writeStationValue(
     serial: string,
     field: "guardMode" | "alarmVolume" | "promptVolume" | "alarmTone",
@@ -6725,13 +6754,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     write: (session: HomeBasePpcsSession) => Promise<void>,
     access: StationAccess = "managed",
   ): Promise<HomeBaseState> {
+    let attempted = false;
     try {
-      return await this.#queueStationOperation(serial, true, async (session) => {
+      return await this.#queueStationOperation(serial, true, async (session, current) => {
+        if (access === "volume") {
+          current?.();
+          const baseline = (await session.readState(false))[field];
+          current?.();
+          if (typeof baseline !== "number" || !Number.isInteger(baseline) || baseline < 1 || baseline > 26) throw new Error("HomeBase volume baseline unavailable");
+        }
         const result = await confirmStationWrite(
           field,
           expected,
-          () => write(session),
-          () => session.readState(false),
+          async () => { current?.(); attempted = true; await write(session); current?.(); },
+          async () => { current?.(); const observed = await session.readState(false); current?.(); return observed; },
         );
         if (result.acknowledgementTimedOut) {
           logger.warn(
@@ -6742,6 +6778,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         return result.observed;
       }, access);
     } catch (error) {
+      if (access === "volume" && attempted) {
+        const unknown = { ...this.#requireStation(serial), [field]: null, connected: false };
+        this.#stations.set(serial, unknown);
+        this.#events?.station(this.#withStationVolumeTrials(unknown));
+      }
       logger.warn(
         "station_command_failed",
         `HomeBase station command failed: command=${field} error=${safeError(error)}`,
@@ -6753,7 +6794,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #queueStationOperation(
     serial: string,
     interruptMedia: boolean,
-    operation: (session: HomeBasePpcsSession) => Promise<HomeBasePpcsState>,
+    operation: (session: HomeBasePpcsSession, current?: () => void) => Promise<HomeBasePpcsState>,
     access: StationAccess = "managed",
   ): Promise<HomeBaseState> {
     const previous = this.#stationOperations.get(serial) ?? Promise.resolve(this.#requireStation(serial));
@@ -6762,15 +6803,35 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const accessSupported = identity && (
         access === "managed" ? isHomeBase3(identity)
           : access === "guard-mode" ? supportsHomeBaseGuardMode(identity)
+            : access === "volume" ? this.config.experimentalModelControls === true && this.config.apiAuthenticationConfigured === true
+              && this.#client.authenticatedBinding() !== null && this.#hb2VolumeTrialAccount(identity)
             : isDiscoveredHomeBase(identity)
       );
       if (!identity || !accessSupported || !identity.p2pDid || !identity.adminUserId) {
         throw new Error("HomeBase local command identity is unavailable");
       }
+      const generation = this.#startupGeneration, binding = access === "volume" ? this.#client.authenticatedBinding() : null;
+      const currentVolume = (): void => {
+        if (access !== "volume") return;
+        const current = this.#devices.get(serial);
+        if (this.#recordingClosing || generation !== this.#startupGeneration || !binding?.() || !current
+          || inventoryBindingChanged(identity, current) || identity.p2pDid !== current.p2pDid || !this.#hb2VolumeTrialAccount(current)) throw new Error("HomeBase volume account changed");
+      };
+      const freshVolume = async (): Promise<void> => {
+        if (access !== "volume") return;
+        currentVolume();
+        const inventory = await this.#client.inventory();
+        if (inventory.devices.filter(row => row.device_sn === serial).length !== 1) throw new Error("HomeBase volume identity changed");
+        const fresh = parseMegaInventory(inventory).find(row => row.serial === serial);
+        if (!fresh || inventoryBindingChanged(identity, fresh) || identity.p2pDid !== fresh.p2pDid || !this.#hb2VolumeTrialAccount(fresh)) throw new Error("HomeBase volume permission unavailable");
+        currentVolume();
+      };
+      await freshVolume();
       if (this.#stationHasRecordingReservation(serial)) {
         if (interruptMedia) throw new Error("Wait for HomeBase recording retrieval before changing station settings");
         return this.#requireStation(serial);
       }
+      if (access === "volume" && this.#stationHasActiveMedia(serial)) throw new Error("Close HomeBase live views before changing trial volume");
       if (interruptMedia) await this.#stopStationMedia(serial);
       else if (this.#stationHasActiveMedia(serial)) return this.#requireStation(serial);
       const destination = homeBaseLocalAddressSelection(identity, this.config.homeBaseLocalAddresses ?? []);
@@ -6785,7 +6846,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       });
       try {
         await session.connect();
-        const observed = await operation(session);
+        currentVolume();
+        const observed = await operation(session, access === "volume" ? currentVolume : undefined);
+        await freshVolume();
         this.#applyHomeBaseChildParams(serial, observed.childParams);
         if (observed.storageDiagnostic && !this.#stationStorageDiagnosticLogged.has(serial)) {
           this.#stationStorageDiagnosticLogged.add(serial);
@@ -6802,14 +6865,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         const updated = mergeHomeBaseState(this.#requireStation(serial), observed);
         this.#stations.set(serial, updated);
-        this.#events?.station(updated);
-        return updated;
+        const published = this.#withStationVolumeTrials(updated);
+        this.#events?.station(published);
+        return published;
       } catch (error) {
         logger.warn("homebase_session_failed", `model=${safeLogModel(identity.model)} local_lookup_source=${destination.source} ${session.diagnostics()}`);
         if (interruptMedia) {
           const updated = { ...this.#requireStation(serial), connected: false };
           this.#stations.set(serial, updated);
-          this.#events?.station(updated);
+          this.#events?.station(this.#withStationVolumeTrials(updated));
         }
         throw error;
       } finally {
@@ -7972,7 +8036,7 @@ function validGuardMode(value: number | null): value is number {
   return value !== null && [0, 1, 2, 3, 4, 5, 47, 63].includes(value);
 }
 
-type StationAccess = "discovered" | "guard-mode" | "managed";
+type StationAccess = "discovered" | "guard-mode" | "managed" | "volume";
 
 function compareFirmware(value: string, minimum: readonly number[]): number {
   const parts = value.match(/\d+/g)?.slice(0, minimum.length).map(Number) ?? [];
