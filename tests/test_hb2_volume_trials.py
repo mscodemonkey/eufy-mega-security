@@ -70,6 +70,7 @@ class HomeBaseVolumeTrialsTest(unittest.IsolatedAsyncioTestCase):
         prompt = entities[0]
         self.assertEqual(prompt._attr_unique_id, "fixture_prompt_volume")
         self.assertEqual(prompt._attr_translation_key, "eufy_station_prompt_volume_experimental")
+        self.assertFalse(prompt._attr_entity_registry_enabled_default)
         self.assertEqual(prompt.native_value, 16)
         self.assertTrue(prompt.available)
         callbacks[0]()
@@ -80,6 +81,7 @@ class HomeBaseVolumeTrialsTest(unittest.IsolatedAsyncioTestCase):
         station["alarmVolume"] = 18
         callbacks[0]()
         self.assertEqual([entity.kind for entity in entities], ["prompt", "alarm"])
+        self.assertFalse(entities[1]._attr_entity_registry_enabled_default)
 
     async def test_legacy_managed_stations_keep_both_numbers(self):
         """Retain existing HB3 identities without requiring new trial metadata."""
@@ -92,6 +94,7 @@ class HomeBaseVolumeTrialsTest(unittest.IsolatedAsyncioTestCase):
         await namespace["async_setup_entry"](None, entry, entities.extend)
         self.assertEqual({entity._attr_unique_id for entity in entities}, {"fixture_alarm_volume", "fixture_prompt_volume"})
         self.assertTrue(all(entity.available for entity in entities))
+        self.assertTrue(all(getattr(entity, "_attr_entity_registry_enabled_default", True) for entity in entities))
 
     async def test_volume_requires_a_whole_value_and_gateway_confirmation(self):
         """Reject malformed values before dispatch and preserve state on failure."""
