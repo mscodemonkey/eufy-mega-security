@@ -850,6 +850,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrLensCalls = new Map<string, NvrLensCallEntry>();
   readonly #nvrIdleCalls = new Map<string, Set<NvrIdleCall>>();
 
+  /**
+   * Gateway hang-ups still running on each T8N00. A hang-up there ends the
+   * gateway's other calls on that NVR, including one placed while it runs, so
+   * no call is admitted on that NVR until they have finished.
+   */
+  readonly #nvrHangUps = new Map<string, Set<Promise<void>>>();
+
   /** The one station reservation every NVR call on that station shares, ordinary or lens. */
   readonly #nvrCallPeers = new Map<string, { readonly owner: symbol | undefined; readonly holders: Set<symbol>; readonly release: () => void }>();
 
@@ -2171,8 +2178,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && (takeOver ? this.#nvrMediaChecks?.settling(rows[0]![0]) || !rows[0]![1].session?.switchable
           : rows[0]![1].retiring || this.#nvrMediaChecks?.retiring?.(rows[0]![0])
             || station.model === "T9000" && station.deviceType === 27 && this.#nvrMediaChecks?.settling(rows[0]![0]));
-      if (call || !settling || performance.now() >= deadline) return call;
-      if (!takeOver && requestedRetirement !== rows[0]![1]) {
+
+      // A view also waits for a hang-up on this NVR to finish, as a pane does.
+      const hangingUp = this.#nvrHangUps.has(station.serial);
+      if (call || !settling && !hangingUp || performance.now() >= deadline) return call;
+      if (settling && !takeOver && requestedRetirement !== rows[0]![1]) {
         const retiring: NvrTrialEntry = rows[0]![1];
         requestedRetirement = retiring;
 
@@ -2206,6 +2216,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         : this.#localMotionAborters.size ? "motion_reserved" : !handover && this.#nvrTrials.size ? "call_reserved"
           : !device ? "missing_device" : !station ? "missing_station" : this.#nvrControlReserved(station.serial) ? "controls_reserved"
             : !(diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) ? "binding"
+              : !handover && this.#nvrHangUps.has(station.serial) ? "hang_up_pending"
               : !handover && besideLensCalls && (diagnostic || stateOnly) ? "call_reserved"
                 : !handover && (besideLensCalls ? this.#stationReservedBesideNvrCalls(station.serial) : this.#recordingPeerReserved(serial)) ? "recording_reserved"
                   : !handover && !besideLensCalls && this.#stationHasActiveMedia(station.serial) ? "media_active"
@@ -2334,16 +2345,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    * view that never used it goes back the same way.
    */
   #endNvrCall(station: MegaInventoryDevice, session: NvrRtcSession | null, unused: NvrIdleCall | null): Promise<void> {
-    const inUse = station.model === "T8N00" && station.deviceType === 300 && !this.#recordingClosing
-      && this.#nvrActiveCallCount(station.serial) > 0;
+    const nvr = station.model === "T8N00" && station.deviceType === 300;
+    const inUse = nvr && !this.#recordingClosing && this.#nvrActiveCallCount(station.serial) > 0;
+    const hangUp = (call: NvrRtcSession): Promise<void> => nvr ? this.#hangUpNvrCall(station.serial, call) : call.close();
     const closing: Promise<unknown>[] = [];
     if (unused && inUse) this.#poolNvrIdleCall(unused);
-    else if (unused) closing.push(unused.session.close().finally(() => unused.controller.abort()));
+    else if (unused) closing.push(hangUp(unused.session).finally(() => unused.controller.abort()));
     if (session && inUse && session.switchable) return Promise.allSettled([this.#parkNvrCall(station.serial, session), ...closing]).then(() => {});
     if (!inUse) closing.push(...this.#hangUpNvrIdleCalls(station.serial));
 
     // This call's own close failure still reaches its owner, after the rest have closed.
-    const own = session ? session.close().then(() => null, (error: unknown) => ({ error })) : Promise.resolve(null);
+    const own = session ? hangUp(session).then(() => null, (error: unknown) => ({ error })) : Promise.resolve(null);
     return Promise.all([own, Promise.allSettled(closing)]).then(([result]) => { if (result) throw result.error; });
   }
 
@@ -2378,7 +2390,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (!this.#nvrIdleCallCount(station)) this.#nvrIdleCalls.delete(station);
         idle.releasePeer(); idle.releasePeer = () => {};
       }
-      await session.close();
+      await this.#hangUpNvrCall(station, session);
       controller.abort();
     }
 
@@ -2392,9 +2404,34 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrIdleCalls.delete(station);
     if (calls.length) logger.info("nvr_parked_calls_hung_up", `count=${calls.length}`);
     return calls.map(async idle => {
-      try { await idle.session.close(); }
+      try { await this.#hangUpNvrCall(station, idle.session); }
       finally { idle.controller.abort(); idle.releasePeer(); idle.releasePeer = () => {}; }
     });
+  }
+
+  /** Hang up one call on a T8N00, holding admission on that NVR until the hang-up has finished. */
+  #hangUpNvrCall(station: string, session: NvrRtcSession): Promise<void> {
+    const closing = session.close();
+    const running = this.#nvrHangUps.get(station) ?? new Set<Promise<void>>();
+    this.#nvrHangUps.set(station, running);
+    running.add(closing);
+    const finished = (): void => {
+      running.delete(closing);
+      if (!running.size && this.#nvrHangUps.get(station) === running) this.#nvrHangUps.delete(station);
+    };
+    void closing.then(finished, finished);
+    return closing;
+  }
+
+  /**
+   * Wait for the hang-ups on one NVR to finish, within the time a view waits
+   * for a call to settle, so a pane opened just as the last one closes gets
+   * its call instead of Home Assistant's retry backoff. Admission still
+   * refuses if one is running at the deadline.
+   */
+  async #nvrHangUpsFinished(station: string): Promise<void> {
+    const deadline = performance.now() + NVR_SWITCH_WAIT_MILLISECONDS;
+    while (this.#nvrHangUps.has(station) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   #nvrLensCallCount(station: string): number {
@@ -2440,6 +2477,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   async openNvrLensCall(serial: string, lens: SharedLens): Promise<NvrLensCall> {
     this.#assertRtcPreparationIdle();
+    const station = this.#devices.get(serial)?.parentSerial;
+    if (station && this.#nvrHangUps.has(station)) {
+      await this.#nvrHangUpsFinished(station);
+      this.#assertRtcPreparationIdle();
+    }
     const entry = this.#reserveNvrLensCall(serial, lens);
     try {
       const session = await this.#startNvrLensSession(entry);
@@ -2477,6 +2519,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             : this.#nvrLensCalls.has(key) ? "lens_reserved"
               : this.#nvrControlReserved(station.serial) || this.#nvrLiveJobs.has(station.serial) ? "controls_reserved"
                 : [...this.#nvrTrials.values()].some(entry => entry.station.serial === station.serial && entry.diagnostic) ? "call_reserved"
+                  : this.#nvrHangUps.has(station.serial) ? "hang_up_pending"
                   : this.#stationReservedBesideNvrCalls(station.serial) ? "media_active"
                     : !this.#nvrIdleCallCount(station.serial) && calls >= NVR_CALL_BUDGET ? "call_budget" : null;
     if (refusal || !device || !station) {
@@ -2546,14 +2589,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           if (failure.stage === "cancelled" || entry.controller.signal.aborted) throw failure;
           logger.warn("nvr_lens_call_idle_failed", `stage=${failure.stage} reason=${failure.reason} lens=${entry.lens}`);
           entry.session = null;
-          await idle.session.close();
+          await this.#hangUpNvrCall(entry.station.serial, idle.session);
           if (!current()) throw new NvrTrialError("cancelled");
         }
       } else {
 
         // Cancelled: the parked call goes back, or hangs up with the rest. One lost while waiting is closed.
         if (parked && idle.session.idle) await this.#endNvrCall(entry.station, null, idle);
-        else if (parked) await idle.session.close();
+        else if (parked) await this.#hangUpNvrCall(entry.station.serial, idle.session);
         if (!current()) throw new NvrTrialError("cancelled");
       }
     }
@@ -2575,7 +2618,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (failure.stage === "cancelled" || entry.controller.signal.aborted) throw failure;
         logger.warn("nvr_lens_call_observer_failed", `stage=${failure.stage} reason=${failure.reason} lens=${entry.lens}`);
         const old = entry.session; entry.session = null;
-        await old.close();
+        await this.#hangUpNvrCall(entry.station.serial, old);
         if (!current()) throw new NvrTrialError("cancelled");
       }
     }
@@ -2645,7 +2688,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           return idle.session;
         }
         if (parked && idle.session.idle) await this.#endNvrCall(entry.station, null, idle);
-        else if (parked) await idle.session.close();
+        else if (parked) await this.#hangUpNvrCall(entry.station.serial, idle.session);
         if (!binding.current()) throw new NvrTrialError("cancelled");
       }
 

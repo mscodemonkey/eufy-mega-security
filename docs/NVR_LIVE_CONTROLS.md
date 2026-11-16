@@ -109,6 +109,14 @@ call (`nvr_lens_call_idle_used`, `nvr_live_idle_call_used`). When the last call
 in use on that NVR ends, it hangs up together with every parked call there
 (`nvr_parked_calls_hung_up`). Closing one pane leaves the other playing.
 
+A call placed while one of these hang-ups is still running would be ended by it.
+So until every hang-up on that NVR has finished, no pane or view, and no
+diagnostic call or state read, is admitted there. A new pane or view waits for
+the hang-up for up to 6 s, the time a view already waits for a call that is
+part-way through stopping, and is then refused before a call is placed
+(`nvr_lens_call_refused` or `nvr_live_start_refused`, `reason=hang_up_pending`)
+if one is still running.
+
 A call that the NVR drops, or one that fails to start or to park, still ends
 with a hang-up and takes the gateway's other calls on that NVR with it. Their
 viewers close, and Home Assistant's retry places fresh calls.

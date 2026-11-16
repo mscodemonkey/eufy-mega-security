@@ -32,6 +32,10 @@ async function fixture(context: TestContext) {
   const started: Options[] = [], closed: Options[] = [], parkedLog: string[] = [], switched: string[] = [];
   let startFailure: Error | null = null, parkFailure: Error | null = null;
 
+  // Calls placed and hang-ups finished, in order. A held hang-up stays running until let go.
+  const order: string[] = [];
+  let hangUpHold: Promise<void> | null = null, letGoHangUps = (): void => {};
+
   // Each mocked call delivers video once started, and can be parked and switched like a real one.
   const label = new Map<NvrRtcSession, string>(), outputs = new Map<NvrRtcSession, PassThrough>();
   const live = new Set<NvrRtcSession>(), parked = new Set<NvrRtcSession>();
@@ -75,6 +79,7 @@ async function fixture(context: TestContext) {
   context.mock.method(NvrRtcSession.prototype, "start", async function (this: NvrRtcSession) {
     if (startFailure) throw startFailure;
     started.push(optionsOf(this)); label.set(this, `${optionsOf(this).camera}:${String(optionsOf(this).sensor)}`); live.add(this);
+    order.push(`placed ${label.get(this)!}`);
   });
   const hungUp = new Set<NvrRtcSession>(), hungUpLabels: string[] = [];
   context.mock.method(NvrRtcSession.prototype, "close", async function (this: NvrRtcSession) {
@@ -84,6 +89,8 @@ async function fixture(context: TestContext) {
     hungUp.add(this); live.delete(this); parked.delete(this);
     closed.push(optionsOf(this)); hungUpLabels.push(label.get(this) ?? "unstarted");
     this.output.end();
+    if (hangUpHold) await hangUpHold;
+    order.push(`hung up ${label.get(this) ?? "unstarted"}`);
   });
   context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night: null, quality: null, tracking: null }));
   context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night: null, quality: null, tracking: null }));
@@ -100,9 +107,15 @@ async function fixture(context: TestContext) {
   provider.setNvrLiveMediaChecks({ viewer: () => true, recording: serial => recording.has(serial), active: () => active,
     yieldable: () => false, settling: () => false });
   await provider.start(events);
-  context.after(async () => { await provider.close(); await rm(directory, { recursive: true, force: true }); });
+  context.after(async () => { letGoHangUps(); await provider.close(); await rm(directory, { recursive: true, force: true }); });
   const sensors = (list: Options[]) => list.map(options => `${options.camera}:${String(options.sensor)}`);
-  return { provider, state, started, closed, sensors, parkedLog, switched, hungUpLabels,
+  const holdHangUps = (): (() => void) => {
+    let letGo = (): void => {};
+    hangUpHold = new Promise<void>(resolve => { letGo = resolve; });
+    letGoHangUps = () => { hangUpHold = null; letGo(); };
+    return letGoHangUps;
+  };
+  return { provider, state, started, closed, sensors, parkedLog, switched, hungUpLabels, order, holdHangUps,
     failParks: (error: Error | null) => { parkFailure = error; }, failStarts: (error: Error | null) => { startFailure = error; },
     setActive: (value: boolean) => { active = value; }, setRecording: (serial: string) => { recording.add(serial); } };
 }
@@ -245,6 +258,96 @@ test("shutdown hangs up parked calls with the rest", async context => {
   assert.equal(value.closed.length, 0);
   await value.provider.close();
   assert.equal(value.closed.length, 2);
+});
+
+const admission = (error: unknown): boolean => error instanceof NvrTrialError && error.stage === "admission";
+
+test("a new pane waits for the last pane's hang-up to finish before placing its call", async context => {
+  const value = await fixture(context);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const letGo = value.holdHangUps();
+  const closing = fixed.close(); await settle();
+  assert.deepEqual(value.hungUpLabels, ["synthetic-s4:0"], "the last pane hangs up rather than parks");
+  const opening = value.provider.openNvrLensCall("synthetic-s4", "movable");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 1, "no call is placed while the NVR's last hang-up is running");
+  letGo();
+  await closing;
+  const movable = await opening;
+  assert.deepEqual(value.order, ["placed synthetic-s4:0", "hung up synthetic-s4:0", "placed synthetic-s4:1"]);
+  await movable.close();
+});
+
+test("an ordinary view waits for the last pane's hang-up to finish before placing its call", async context => {
+  const value = await fixture(context);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const letGo = value.holdHangUps();
+  const closing = fixed.close(); await settle();
+  const opening = value.provider.startStream("synthetic-e41");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 1, "no call is placed while the NVR's last hang-up is running");
+  letGo();
+  await closing; await opening; await settle();
+  assert.deepEqual(value.order, ["placed synthetic-s4:0", "hung up synthetic-s4:0", "placed synthetic-e41:0"]);
+  await value.provider.stopStream("synthetic-e41");
+});
+
+test("a pane and an ordinary view wait for the last ordinary view's hang-up to finish", async context => {
+  const value = await fixture(context);
+  await value.provider.startStream("synthetic-e41"); await settle();
+  const letGo = value.holdHangUps();
+  const stopping = value.provider.stopStream("synthetic-e41"); await settle();
+  assert.deepEqual(value.hungUpLabels, ["synthetic-e41:0"]);
+  const pane = value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const view = value.provider.startStream("synthetic-s4");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 1, "no call is placed while the NVR's last hang-up is running");
+  letGo();
+  await stopping;
+  const fixed = await pane; await view; await settle();
+  assert.deepEqual(value.order.slice(0, 2), ["placed synthetic-e41:0", "hung up synthetic-e41:0"]);
+  assert.deepEqual(value.order.slice(2).sort(), ["placed synthetic-s4:0", "placed synthetic-s4:both"], "the pane and the view each placed a call after it");
+  await Promise.all([fixed.close(), value.provider.stopStream("synthetic-s4")]);
+});
+
+test("a pane and an ordinary view wait while the last view in use hangs up with the parked calls", async context => {
+  const value = await fixture(context);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  await value.provider.startStream("synthetic-e41"); await settle();
+  await Promise.all([fixed.close(), movable.close()]);
+  assert.deepEqual(value.parkedLog.sort(), ["synthetic-s4:0", "synthetic-s4:1"], "both panes parked beside the view");
+  const letGo = value.holdHangUps();
+  const stopping = value.provider.stopStream("synthetic-e41"); await settle();
+  assert.deepEqual(value.hungUpLabels.sort(), ["synthetic-e41:0", "synthetic-s4:0", "synthetic-s4:1"], "the last view hangs up with both parked calls");
+  const pane = value.provider.openNvrLensCall("synthetic-s4b", "fixed");
+  const view = value.provider.startStream("synthetic-s4");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 3, "no call is placed while those hang-ups are running");
+  assert.deepEqual(value.switched, [], "and none of the calls being hung up is reused");
+  letGo();
+  await stopping;
+  const other = await pane; await view; await settle();
+  assert.equal(value.order.slice(3, 6).every(step => step.startsWith("hung up ")), true, "all three hang-ups finished first");
+  assert.deepEqual(value.order.slice(6).sort(), ["placed synthetic-s4:both", "placed synthetic-s4b:0"]);
+  await Promise.all([other.close(), value.provider.stopStream("synthetic-s4")]);
+});
+
+test("a hang-up that outlasts the wait refuses a new pane or view before any call", async context => {
+  const value = await fixture(context);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const letGo = value.holdHangUps();
+  const closing = fixed.close(); await settle();
+  const now = performance.now.bind(performance);
+  let skip = 0;
+  context.mock.method(performance, "now", () => now() + skip);
+  const pane = assert.rejects(value.provider.openNvrLensCall("synthetic-s4", "movable"), admission);
+  const view = assert.rejects(value.provider.startStream("synthetic-e41"), admission);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  skip = 7_000;
+  await pane; await view;
+  assert.equal(value.started.length, 1, "neither placed a call");
+  letGo(); await closing;
 });
 
 for (const exit of ["close", "start_failure", "call_lost", "shutdown"] as const) {
