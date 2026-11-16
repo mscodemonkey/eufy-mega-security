@@ -11,7 +11,7 @@ import test from "node:test";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
-import { EufyProvider, supportsExperimentalHomeBaseStoredRecordings } from "../src/provider/eufy-provider.js";
+import { EufyProvider, parseMegaInventory, supportsExperimentalHomeBaseStoredRecordings } from "../src/provider/eufy-provider.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 
@@ -70,7 +70,8 @@ for (const [model, deviceType] of [["T8113-Z", 8], ["T8210", 7]] as const) {
 }
 
 test("nearby recording models cannot enter the HB3 trial", () => {
-  const peer = { serial: "base", model: "T8030", deviceType: 18, category: "eufy_security", adminUserId: "owner" };
+  const peer = parseMegaInventory({ devices: [{ device_sn: "base", device_model: "T8030", device_type: 18,
+    category: "eufy_security", member: { admin_user_id: "owner" }, params: [] }] })[0]!;
   const camera = { serial: "camera", model: "T8113-Z", deviceType: 8, category: "eufy_security", parentSerial: "base", channel: 1, adminUserId: "owner" };
   const route = { homeBaseAttached: true, peer };
   assert.equal(supportsExperimentalHomeBaseStoredRecordings(camera, route, true), true);
