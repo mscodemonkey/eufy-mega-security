@@ -97,6 +97,55 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(global_settings.min_segment_duration, 5.9)
         self.original.assert_called_once_with("hls", timeout=60)
 
+    async def test_c31_ordinary_hls_starts_without_the_default_six_second_segments(self):
+        """The C31's HLS fallback must stay responsive with either video preference."""
+        for native in (False, True):
+            for parent in (None, "", "demo"):
+                with self.subTest(native=native, parent=parent):
+                    global_settings, own_settings = self._settings(), self._settings()
+                    self.camera.hass = SimpleNamespace(data={"stream": {"settings": global_settings}})
+                    self.camera.camera = {"model": "T817L", "deviceType": 10031, "stationSerial": parent}
+                    self.camera._native_video = native
+                    self.camera._fast_native_hls = False
+                    self.camera._hls_idle_stream = None
+                    self.camera.stream = None
+                    self.stream.add_provider = self.original
+                    self.stream.outputs.return_value = {}
+                    self.original.return_value.stream_settings = own_settings
+                    await self.camera.async_create_stream()
+                    self.stream.add_provider("hls")
+                    self.assertEqual(own_settings.min_segment_duration, 1.9)
+                    self.assertEqual(own_settings.part_target_duration, 1.0)
+                    self.assertEqual(global_settings.min_segment_duration, 5.9)
+
+    async def test_c31_hls_tuning_preserves_other_sources_and_existing_consumers(self):
+        """Do not retune another route, running worker, recording or preload."""
+        for scenario in ("foreign-model", "foreign-type", "attached", "cached", "recording-active", "preload", "recorder", "explicit-timeout", "global-shared", "unknown-class", "non-ll", "invalid-minimum", "missing-global"):
+            with self.subTest(scenario=scenario):
+                global_settings, own_settings = self._settings(), self._settings()
+                self.camera.hass = SimpleNamespace(data={"stream": {"settings": global_settings}} if scenario != "missing-global" else {})
+                self.camera.camera = {"model": "T8417" if scenario == "foreign-model" else "T817L",
+                                      "deviceType": 10030 if scenario == "foreign-type" else 10031,
+                                      "stationSerial": "homebase" if scenario == "attached" else "demo"}
+                self.camera._hls_idle_stream = None
+                self.camera.stream = self.stream if scenario == "cached" else None
+                self.stream.add_provider = self.original
+                self.stream.outputs.return_value = {"recorder": object()} if scenario == "recording-active" else {}
+                self.stream.dynamic_stream_settings.preload_stream = scenario == "preload"
+                if scenario == "global-shared":
+                    own_settings = global_settings
+                elif scenario == "unknown-class":
+                    own_settings = SimpleNamespace(min_segment_duration=5.9, ll_hls=True)
+                elif scenario == "non-ll":
+                    own_settings.ll_hls = False
+                elif scenario == "invalid-minimum":
+                    own_settings.min_segment_duration = 20.0
+                self.original.return_value.stream_settings = own_settings
+                before = own_settings.min_segment_duration
+                await self.camera.async_create_stream()
+                self.stream.add_provider("recorder" if scenario == "recorder" else "hls", 120 if scenario == "explicit-timeout" else None)
+                self.assertEqual(own_settings.min_segment_duration, before)
+
     async def test_fast_native_hls_preserves_existing_owners_and_unknown_contracts(self):
         """Keep compatible video, cached workers, recordings, preload and shared settings unchanged."""
         for scenario in ("disabled", "compatible", "cached", "recording-active", "preload", "recorder", "explicit-timeout", "global-shared", "unknown-class", "non-ll", "invalid-minimum", "missing-global"):
