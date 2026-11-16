@@ -29,9 +29,9 @@ async def async_setup_entry(
     entry: EufyGatewayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create alarm and prompt volume controls for every HomeBase."""
+    """Create each station volume only when its own command is admitted."""
     coordinator = entry.runtime_data.coordinator
-    known: set[str] = set()
+    known: set[tuple[str, str]] = set()
     known_cameras: set[tuple[str, str]] = set()
     known_sensitivity: set[str] = set()
     known_brightness: set[str] = set()
@@ -51,21 +51,17 @@ async def async_setup_entry(
                 if key not in known_cameras and camera_preference_value(camera, name) is not None:
                     known_cameras.add(key)
                     async_add_entities([EufyCameraPreferenceNumber(coordinator, serial, name)])
-        serials = {
-            serial
-            for serial, station in coordinator.stations.items()
-            if station.get("controlsSupported") is True
-        } - known
-        if serials:
-            known.update(serials)
-            entities = []
-            for serial in sorted(serials):
-                entities.extend(
-                    (
-                        EufyStationVolume(coordinator, serial, "alarm"),
-                        EufyStationVolume(coordinator, serial, "prompt"),
-                    )
-                )
+        entities = []
+        for serial, station in sorted(coordinator.stations.items()):
+            for kind in ("alarm", "prompt"):
+                key = (serial, kind)
+                if key not in known and (
+                    station.get("controlsSupported") is True
+                    or station.get(f"{kind}VolumeControlSupported") is True
+                ):
+                    known.add(key)
+                    entities.append(EufyStationVolume(coordinator, serial, kind))
+        if entities:
             async_add_entities(entities)
 
     add_new()
@@ -94,11 +90,22 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
         self.kind = kind
         self._attr_translation_key = f"eufy_station_{kind}_volume"
         self._attr_unique_id = f"{serial}_{kind}_volume"
+        if self.station.get("volumeControlsExperimental") is True:
+            self._attr_translation_key += "_experimental"
         self._setter: Callable[[str, int], Awaitable[dict[str, Any]]] = (
             coordinator.client.set_station_alarm_volume
             if kind == "alarm"
             else coordinator.client.set_station_prompt_volume
         )
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the individual trial when its gateway admission disappears."""
+        return super().available and (
+            self.station.get("controlsSupported") is True
+            or self.station.get(f"{self.kind}VolumeControlSupported") is True
+        )
+
     @property
     def native_value(self) -> float | None:
         """Return the latest reported Eufy volume level."""
@@ -108,6 +115,8 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set volume and publish it only after gateway confirmation."""
         try:
+            if type(value) not in (int, float) or not 1 <= value <= 26 or int(value) != value:
+                raise ValueError("Volume must be a whole number from 1 to 26")
             station = await self._setter(self.serial, int(value))
             self.set_confirmed_station(station)
         except (GatewayClientError, ValueError) as error:

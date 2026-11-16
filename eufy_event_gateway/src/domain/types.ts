@@ -397,6 +397,15 @@ export interface HomeBaseState {
   /** Whether the model may receive the managed station control set. */
   readonly controlsSupported: boolean;
 
+  /** Exact-model opt-in volume admission, independent of the managed station command set. */
+  readonly alarmVolumeControlSupported?: boolean;
+
+  /** Requires its own reported prompt-volume baseline and authenticated account. */
+  readonly promptVolumeControlSupported?: boolean;
+
+  /** Mark these separate volume controls as an unconfirmed HomeBase 2 trial. */
+  readonly volumeControlsExperimental?: boolean;
+
   /** Whether the station may receive confirmed guard-mode writes. */
   readonly guardModeControlSupported: boolean;
 
