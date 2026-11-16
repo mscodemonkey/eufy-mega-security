@@ -33,7 +33,7 @@ test("main-lens tokens and stills require admission without opening the combined
     await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
     const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
     const token = async (body: string, serial = "test") => await fetch(`${base}/${serial}/stream-token`, { method: "POST", headers, body });
-    for (const body of ['{"lens":"other"}', '{"lens":"fixed","profile":"native"}', '{"lens":"movable","audio":"on"}',
+    for (const body of ['{"lens":"other"}', '{"lens":"main","profile":"native"}', '{"lens":"movable","audio":"on"}',
       '{"lens":"fixed","lens":"movable"}', '{"lens":"fixed","command":"write"}']) assert.equal((await token(body)).status, 400);
     assert.equal((await token('{"lens":"main"}', "other")).status, 409); assert.equal(calls, 0);
     for (const lens of ["main"]) {
