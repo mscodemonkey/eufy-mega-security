@@ -214,3 +214,51 @@ test('an observer call whose signalling socket has gone is not taken over, becau
     assert.deepEqual(value.requests.map(row => row.command), [9100]);
   } finally { await value.close(); }
 });
+
+test('a parked call stops its camera, stays connected with no camera, and a view switches to it without another stop', { timeout: 30000 }, async () => {
+  const value = await fixture('video');
+  try {
+    await value.started();
+    const old = value.firstOutputs[0]!;
+    const ended = once(old, 'end');
+    const pool = new AbortController();
+    await value.session.park({ signal: pool.signal, current: () => !pool.signal.aborted });
+    await ended;
+    assert.deepEqual(value.requests.map(row => row.command), [9100, 1003, 1004]);
+    assert.equal(value.session.idle, true);
+    assert.equal(value.session.switchable, false);
+
+    // Ownership moved at once, so retiring the viewer cannot touch the parked call.
+    value.stale(); value.first.abort();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(value.session.idle, true);
+    assert.equal(value.session.output.readableLength, 0, 'no picture is kept while parked');
+    const reported: PassThrough[] = [];
+    const moved = value.session.switchCamera(value.target(output => { reported.push(output); output.resume(); }));
+    assert.equal(value.session.idle, false);
+    assert.ok(await moved >= 0);
+    assert.deepEqual(reported, [value.session.output]);
+    assert.deepEqual(value.requests.map(row => row.command), [9100, 1003, 1004, 1003]);
+    assert.deepEqual([value.requests.at(-1)!.channel, value.requests.at(-1)!.sensor], [8, 0]);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(value.session.switchable, true);
+  } finally { await value.close(); }
+});
+
+test('only a call delivering video can park, and a parked call ends with its pool', { timeout: 30000 }, async () => {
+  const idle = new NvrRtcSession({ station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, administrator: 'synthetic-administrator',
+    context: { host: 'security-smart-ie.eufylife.com', region: 'IE', authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+    signal: new AbortController().signal, current: () => true, maximumLifetimeMilliseconds: null, ready: () => {} });
+  await assert.rejects(idle.park({ signal: new AbortController().signal, current: () => true }), { stage: 'admission' });
+  await idle.close();
+  const value = await fixture('video');
+  try {
+    await value.started();
+    const pool = new AbortController();
+    await value.session.park({ signal: pool.signal, current: () => !pool.signal.aborted });
+    const failed = once(value.session.output, 'error');
+    pool.abort();
+    await failed;
+    assert.equal(value.session.idle, false);
+  } finally { await value.close(); }
+});

@@ -435,20 +435,36 @@ class GatewayClient:
         except (ClientError, TimeoutError) as error:
             raise GatewayClientError(str(error)) from error
 
-    async def shared_lens_stream_url(self, serial: str, lens: str) -> str:
-        """Require an explicit pane response, never retrying against a normal stream."""
+    async def shared_lens_stream_url(self, serial: str, lens: str, *, native: bool = False) -> str:
+        """Require an explicit pane response, never retrying against a normal stream.
+
+        Native asks for the lens's own unconverted call. A gateway that predates
+        native panes refuses that request, and the pane falls back to its
+        compatible H.264 route. Every response must name the requested pane.
+        """
         if lens not in ("fixed", "movable"):
             raise GatewayClientError("Invalid shared lens")
-        payload = await self._json(f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST",
-                                   payload={"profile": "compatible", "audio": "off", "lens": lens})
-        if not isinstance(payload, dict):
+        token_path = f"/api/cameras/{quote(serial, safe='')}/stream-token"
+        if native:
+            try:
+                payload = await self._json(token_path, method="POST",
+                                           payload={"profile": "native", "audio": "off", "lens": lens})
+            except GatewayClientError as error:
+                if error.status != 400:
+                    raise
+                native = False
+        if not native:
+            payload = await self._json(token_path, method="POST",
+                                       payload={"profile": "compatible", "audio": "off", "lens": lens})
+        if not isinstance(payload, dict) or native and payload.get("profile") != "native":
             raise GatewayClientError("Gateway returned an invalid shared lens path")
         path = payload.get("path")
         if not isinstance(path, str) or payload.get("lens") != lens or "\\" in path:
             raise GatewayClientError("Gateway returned an invalid shared lens path")
         parts = urlsplit(path)
+        media = f"live-{lens}-native.annexb" if native else f"live-{lens}.h264"
         if (parts.scheme or parts.netloc or parts.fragment
-                or parts.path != f"/api/cameras/{quote(serial, safe='')}/live-{lens}.h264"):
+                or parts.path != f"/api/cameras/{quote(serial, safe='')}/{media}"):
             raise GatewayClientError("Gateway returned an invalid shared lens path")
         return self._url(path)
 

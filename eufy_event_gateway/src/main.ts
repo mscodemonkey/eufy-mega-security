@@ -153,6 +153,9 @@ streams.on("warning", (error: unknown) => {
 streams.on("shared-lens-closed", (detail: { model: string; reason: string }) => {
   logger.info("shared_lens_view_closed", `model=${detail.model} reason=${detail.reason}`);
 });
+streams.on("native-lens-closed", (detail: { model: string; lens: string; reason: string }) => {
+  logger.info("native_lens_view_closed", `model=${detail.model} lens=${detail.lens} reason=${detail.reason}`);
+});
 streams.on("viewer-transcoder-stopped", (detail: ViewerTranscoderSummary) => {
   const input = detail.inputCadence;
   const output = detail.outputCadence;

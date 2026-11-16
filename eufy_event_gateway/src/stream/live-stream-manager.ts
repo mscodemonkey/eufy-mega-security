@@ -22,6 +22,7 @@ import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../dom
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
 import { SharedLensViews, spawnSharedLensConverter, type SharedLens, type SharedLensConverterFactory } from "./shared-lens-views.js";
+import { NativeLensView, type NvrLensCall } from "./native-lens-views.js";
 import { JpegParser } from "./jpeg-parser.js";
 import { qualifiedS340LiveSource } from "./live-frame-clock.js";
 import { MediaInputBound } from "./media-input-bound.js";
@@ -39,6 +40,12 @@ export interface StreamController {
 
   /** Resolve after the old source's stop callbacks and owned media I/O have retired. */
   stopStream(serial: string): Promise<void>;
+
+  /**
+   * Open one S4 lens on its own native NVR call for a pane camera. The provider
+   * admits it within the NVR's call budget, or rejects without opening a call.
+   */
+  openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
 }
 
 /** Bounded timing counters for one side of a viewer conversion session. */
@@ -638,6 +645,7 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
   readonly #lensViews = new Map<string, SharedLensViews>();
+  readonly #nativeLensViews = new Map<string, NativeLensView>();
   readonly #deliveredViews = new Set<string>();
   readonly #newViews = new Map<string, number>();
   readonly #heldViews = new Set<string>();
@@ -700,6 +708,35 @@ export class LiveStreamManager extends EventEmitter {
       try { await this.addClient(serial, pair.input, "native"); }
       catch (error) { pair.close(); throw error; }
     }
+  }
+
+  /**
+   * Give a pane viewer its lens's own native call, shared by that pane's viewers.
+   * It never joins the camera's ordinary source and never transcodes. The two
+   * lenses are separate entries, so one closing leaves the other running.
+   */
+  async addNativeLensClient(serial: string, lens: SharedLens, response: VideoViewerResponse): Promise<void> {
+    if (this.#closed || response.destroyed || response.writableEnded) return;
+    const open = this.controller.openNvrLensCall?.bind(this.controller);
+    if (!open) throw new Error("Native lens views are unavailable");
+    const admitted = (): boolean => {
+      if (this.#closed || !this.state.hasCamera(serial)) return false;
+      const camera = this.state.getCamera(serial);
+      return camera.model === "T8E00" && camera.nvrLiveControlsSupported === true && camera.nvrSelectedView === 2;
+    };
+    if (!admitted()) throw new Error("Select the admitted NVR Both view before opening a lens");
+    const key = JSON.stringify([serial, lens]);
+    let view = this.#nativeLensViews.get(key);
+    if (!view || view.closed) {
+      const owned: NativeLensView = new NativeLensView(lens, () => open(serial, lens), new VideoParameterSetCache(),
+        this.stopGraceMilliseconds, admitted, reason => {
+          if (this.#nativeLensViews.get(key) === owned) this.#nativeLensViews.delete(key);
+          this.emit("native-lens-closed", { model: "T8E00", lens, reason });
+        });
+      view = owned; this.#nativeLensViews.set(key, owned);
+    }
+    try { await view.add(response); }
+    catch (error) { response.destroy(error instanceof Error ? error : undefined); }
   }
 
   /** Keep the original request clock across retirement and transport setup. */
@@ -1302,6 +1339,7 @@ export class LiveStreamManager extends EventEmitter {
   /** Stop every source and release FFmpeg processes during shutdown. */
   async close(): Promise<void> {
     for (const pair of this.#lensViews.values()) pair.close();
+    for (const view of this.#nativeLensViews.values()) view.close("gateway_closed");
     if (this.#closed) return;
     this.#closed = true;
     this.emit("closed");

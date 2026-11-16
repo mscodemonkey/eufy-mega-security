@@ -75,6 +75,17 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         old.stop.assert_awaited_once()
         self.assertIsNone(self.camera.stream)
 
+    async def test_a_native_pane_keeps_its_stream_while_the_main_camera_is_idle(self) -> None:
+        """The pane's own call is running even though the main camera's source is idle."""
+        old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value={"hls": object()}), available=True,
+                              add_provider=Mock(), dynamic_stream_settings=SimpleNamespace(preload_stream=False))
+        self.base.async_create_stream.return_value = old
+        self.camera.stream = old
+        self.camera.camera = {"stream": {"state": "idle"}}
+        self.camera._own_nvr_call = True
+        self.assertIs(await self.camera.async_create_stream(), old)
+        old.stop.assert_not_awaited()
+
     async def test_a_starting_preloaded_or_recording_stream_is_kept(self) -> None:
         for state, preload, outputs in (("starting", False, {"hls": 1}), ("idle", True, {"hls": 1}), ("idle", False, {"recorder": 1})):
             old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value=outputs),

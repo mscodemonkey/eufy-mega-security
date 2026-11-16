@@ -308,3 +308,21 @@ test("a state read still closes the watcher instead of taking its call", async c
   assert.equal(f.takeovers.length, 0);
   assert.deepEqual(f.closes.slice(0, 1), [f.sessions[0]]);
 });
+
+test("the first pane takes over the listening watcher's call, and the watcher stays off until every pane has closed", async context => {
+  context.mock.method(MegaClient.prototype, "isAuthenticatedUser", (owner: string) => owner === "synthetic-owner");
+  const f = await fixture(context, true, true, "takeover");
+  assert.equal(f.provider.nvrSharedLensViewsAdmitted("synthetic-camera"), true);
+  const fixed = await f.provider.openNvrLensCall("synthetic-camera", "fixed");
+  assert.deepEqual(f.takeovers.map(row => [row.camera, row.sensor, row.liveControls, row.audio]), [["synthetic-camera", 0, false, false]]);
+  assert.equal(f.closes.length, 0); assert.equal(f.signs(), 1);
+  const movable = await f.provider.openNvrLensCall("synthetic-camera", "movable");
+  assert.equal(f.video(), 1, "the second lens places its own call"); assert.equal(f.signs(), 2);
+  await fixed.close();
+  await f.refresh();
+  assert.equal(f.sessions.length, 1, "inventory cannot reopen the watcher over an open pane");
+  await movable.close();
+  await f.refresh();
+  assert.equal(f.sessions.length, 2);
+  assert.equal(f.writes(), 0);
+});

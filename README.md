@@ -523,16 +523,21 @@ Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
 with a configured API token. Disabling the option restores ordinary transport
 playback after restarting the app.
 
-### Experimental shared NVR lens cameras
+### Experimental NVR lens cameras
 
 For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
-optional Fixed and Movable camera entities from one Both feed. Both entities
-start disabled in HA. Each shows its own 1280x720 video-only pane and retained
-image, sharing one camera connection and decoder. They require Both view and
-keep the NVR call while either view or its recording is active. A reporter confirmed both panes playing together on v0.1.262, their physical
+optional **Fixed lens** and **Movable lens** camera entities. Both start disabled in HA
+and require Both view. Each plays its own lens on its own NVR call, 1920x1080
+H.265 with no conversion, and keeps that call while its view or recording is
+active. Both panes and one ordinary view fit the NVR's call limit. The NVR ends
+all of the gateway's calls when one hangs up, so a call that is no longer in use
+stays connected with no camera while other calls on that NVR are, and the next
+view reuses it. With H.264
+compatibility on, the panes instead share one Both call and decoder as two
+1280x720 H.264 panes. A reporter confirmed both shared panes playing together on v0.1.262, their physical
 lens identities, continued playback after one closed and a single final call
 close in [#433](https://github.com/mscodemonkey/eufy-mega-security/issues/433).
-Longer playback and other camera/station pairings remain unconfirmed. See [shared lens setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-shared-720p-lens-entities).
+Longer playback and other camera/station pairings remain unconfirmed. See [lens entity setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-lens-entities).
 
 ### Experimental fixed H.265 viewer resolution
 
@@ -565,8 +570,8 @@ The saving costs detail and smoothness in each pane:
 | NVR Both view, 1280 by 1440 stacked, as one camera | each lens 1280 by 720 | 640 by 720 stacked, so each lens 640 by 360 |
 
 With `experimental_fixed_h265_resolution` also on, the fixed 1920 by 1080 size
-applies and only the picture rate is halved. The shared 720p lens cameras have
-their own conversion, which this option does not change. The profile was measured only on a
+applies and only the picture rate is halved. The lens cameras are native, or
+with H.264 compatibility have their own conversion, which this option does not change. The profile was measured only on a
 Home Assistant Green with a 1080p, 15 fps S350 behind an NVR S4, where it kept
 the converted view about 2.5 seconds behind live. Other cameras and hosts are
 unconfirmed. Standalone installs can set
