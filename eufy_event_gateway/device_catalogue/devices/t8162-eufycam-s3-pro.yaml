@@ -82,10 +82,10 @@ capabilities:
     live_view:
       connections:
         T9000:
-          status: failing
-          tested_on: 2026-09-17
-          tested_by: geroh20-source
-          notes: The T9000 camera route cannot complete peer lookup.
+          status: reported
+          tested_on: 2026-11-16
+          tested_by: basiokan
+          notes: Issue 841 confirms ordinary HA live video on both T8162 cameras through T9000 with app and integration v0.1.269, eight starts and no reported gaps. Firmware 3.1.6.2. This does not confirm audio or controls.
     snapshot:
       connections:
         T9000:
