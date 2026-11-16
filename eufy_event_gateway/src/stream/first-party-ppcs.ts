@@ -1468,6 +1468,12 @@ export interface PpcsCameraOptions {
   /** Current inventory child identity used only to project HomeBase recording ownership. */
   readonly recordingCameraSerial?: string;
 
+  /** Provider-owned opt-in admission for exact 2C and T8210 HomeBase 3 recording routes. */
+  readonly experimentalHomeBaseRecordings?: boolean;
+
+  /** Revalidate the provider's account and route before each recording command. */
+  readonly recordingCurrent?: () => void;
+
   /** Eufy account identity required inside camera control payloads. */
   readonly accountId: string | null;
 
@@ -3179,13 +3185,21 @@ export class FirstPartyPpcsSession {
 
   #recordingReader(): SoloCamRecordingReader | HomeBaseRecordingReader {
     if (this.#options.homeBaseAttached) {
-      if (this.#options.cameraModel !== "T8171" || this.#options.stationModel !== "T8030" || this.#options.channel !== 1 ||
+      const trialType = this.#options.experimentalHomeBaseRecordings === true
+        && this.#options.stationDeviceType === 18
+        && Number.isInteger(this.#options.channel) && this.#options.channel >= 0 && this.#options.channel <= 31
+        && (this.#options.cameraModel === "T8113-Z" && this.#options.cameraDeviceType === 8
+          || this.#options.cameraModel === "T8210" && this.#options.cameraDeviceType === 7) ? this.#options.cameraDeviceType : null;
+      const e30 = this.#options.cameraModel === "T8171" && this.#options.channel === 1;
+      if ((!e30 && trialType === null) || this.#options.stationModel !== "T8030" ||
         !this.#options.recordingCameraSerial || this.#options.purpose !== "control" || !this.#options.accountId) {
-        throw new Error("Stored recordings require the verified SoloCam HomeBase route");
+        throw new Error("Stored recordings require an admitted HomeBase 3 child route");
       }
       this.#recordings ??= new HomeBaseRecordingReader({
         serial: this.#options.recordingCameraSerial, stationSerial: this.#options.stationSerial, channel: this.#options.channel,
+        deviceType: trialType ?? 88,
         query: (transaction, date) => {
+          this.#options.recordingCurrent?.();
           const value = { account_id: this.#options.accountId, cmd: 1306, mChannel: 255, mValue3: 0,
             payload: { cmd: 10011, table: "history_record_info", transaction, payload: {
               count: 100, start_date: date, end_date: date, start_id: 0, end_id: 1, flag: 0, need_ai: 1,
@@ -3194,7 +3208,9 @@ export class FirstPartyPpcsSession {
           this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), 255, 8, [8, 0], 0));
         },
         download: (filepath, key) => {
-          const value = { account_id: this.#options.accountId, cmd: 1024, mChannel: this.#options.channel, mValue3: 1024, payload: { key, filepath } };
+          this.#options.recordingCurrent?.();
+          const value = { account_id: this.#options.accountId, cmd: 1024, mChannel: this.#options.channel, mValue3: 1024,
+            payload: { key, filepath, ...(trialType !== null ? { channel: this.#options.channel } : {}) } };
           this.#sendCommand(1350, rawPayload(encryptLevel2(Buffer.from(JSON.stringify(value)), this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, 0], 25));
         },
         decodeReply: (payload, sign) => {

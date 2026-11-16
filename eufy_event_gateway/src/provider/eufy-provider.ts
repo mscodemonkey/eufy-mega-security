@@ -711,6 +711,16 @@ function supportsOwnedHomeBaseHistory(
     && device.adminUserId === route.peer.adminUserId;
 }
 
+/** Admit opt-in saved playback only for exact 2C and T8210 children on an owner-bound HB3. */
+export function supportsExperimentalHomeBaseStoredRecordings(
+  device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "category" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return ((device.model === "T8113-Z" && device.deviceType === 8) || (device.model === "T8210" && device.deviceType === 7))
+    && supportsOwnedHomeBaseHistory(device, route, routeReady);
+}
+
 /** Admit the verified type-8 route and the opt-in E340 trial on an owner-bound HomeBase 3. */
 export function supportsEventPictureHistory(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "parentSerial" | "category" | "adminUserId">,
@@ -1590,9 +1600,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const device = this.#devices.get(serial);
       const route = device ? ppcsStreamRoute(device, this.#devices) : null;
       const ready = device ? isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys())) : false;
+      const trial = purpose === "recordings" && !!device && supportsExperimentalHomeBaseStoredRecordings(device, route, ready);
       const admitted = device && (purpose === "event_picture" ? supportsEventPictureHistory(device, route, ready)
           && (device.model !== "T8214" || this.config.experimentalHomeBaseEventImages === true)
-        : diagnostic ? supportsEventNameHistory(device, route, ready) : supportsSoloCamStoredRecordings(device, route, ready));
+        : diagnostic ? supportsEventNameHistory(device, route, ready)
+          : supportsSoloCamStoredRecordings(device, route, ready) || this.#homeBaseRecordingTrialAdmitted(device));
       if (this.#recordingClosing || !device || !admitted || signal?.aborted
         || diagnostic && generation !== this.#startupGeneration) {
         throw new Error("Stored recordings require a verified ready SoloCam route");
@@ -1604,14 +1616,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#recordingReservations.add(serial);
       try {
         const peer = route!.peer;
+        const binding = trial ? this.#client.authenticatedBinding() : null;
+        const checkTrial = (): void => {
+          if (!trial) return;
+          const child = this.#devices.get(serial), parent = this.#devices.get(peer.serial);
+          if (this.#recordingClosing || generation !== this.#startupGeneration || signal?.aborted || !binding?.()
+            || !child || !parent || inventoryBindingChanged(device, child) || inventoryBindingChanged(peer, parent)
+            || peer.p2pDid !== parent.p2pDid || peer.p2pConnection !== parent.p2pConnection
+            || !this.#homeBaseRecordingTrialAccount(child, parent)) throw new Error("Recording trial binding changed");
+        };
         await this.#stationOperations.get(peer.serial)?.catch(() => undefined);
-        if (diagnostic) {
+        checkTrial();
+        if (diagnostic || trial) {
           const inventory = await this.#client.inventory(signal);
           if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
             || inventory.devices.filter(row => row.device_sn === peer.serial).length !== 1) throw new EventNameHistoryError("unavailable");
           const rows = parseMegaInventory(inventory), child = rows.find(row => row.serial === serial), parent = rows.find(row => row.serial === peer.serial);
           if (!child || !parent || inventoryBindingChanged(device, child) || inventoryBindingChanged(peer, parent)
             || peer.p2pDid !== parent.p2pDid || peer.p2pConnection !== parent.p2pConnection) throw new EventNameHistoryError("cancelled");
+          if (trial && (!this.#homeBaseRecordingTrialAccount(child, parent)
+            || rows.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length !== 1)) throw new Error("Recording trial membership unavailable");
         }
         const dsk = await this.#dskKey(peer.serial);
         if (!dsk || signal?.aborted || this.#recordingClosing || this.#ppcsStreams.has(serial)) throw new Error("Recording camera connection is unavailable");
@@ -1620,7 +1644,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) throw new EventNameHistoryError("cancelled");
         const session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!,
           appConnection: peer.p2pConnection!, localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
-          channel: device.channel!, cameraModel: device.model, stationModel: peer.model, recordingCameraSerial: device.serial,
+          channel: device.channel!, cameraModel: device.model, cameraDeviceType: device.deviceType, stationModel: peer.model, stationDeviceType: peer.deviceType, recordingCameraSerial: device.serial,
+          ...(trial ? { experimentalHomeBaseRecordings: true, recordingCurrent: checkTrial } : {}),
           accountId: diagnostic ? peer.adminUserId! : device.adminUserId!, homeBaseAttached: route!.homeBaseAttached,
           purpose: "control", maxSeconds: purpose === "event_picture" ? 60 : 120, resolveCipherKey: (id) => this.#resolveCipherKey(id, peer) });
         this.#recordingSessions.set(serial, session);
@@ -1628,12 +1653,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         signal?.addEventListener("abort", abort, { once: true });
         try {
           await session.start();
+          checkTrial();
           if (diagnostic && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
             || !this.#devices.get(serial) || inventoryBindingChanged(device, this.#devices.get(serial)!)
             || !this.#devices.get(peer.serial) || inventoryBindingChanged(peer, this.#devices.get(peer.serial)!))) {
             throw new EventNameHistoryError("cancelled");
           }
           result = await operation(session);
+          checkTrial();
+          if (trial) {
+            const inventory = await this.#client.inventory(signal);
+            if (inventory.devices.filter(row => row.device_sn === serial).length !== 1
+              || inventory.devices.filter(row => row.device_sn === peer.serial).length !== 1) throw new Error("Recording trial identity changed");
+            const fresh = parseMegaInventory(inventory);
+            const child = fresh.find(row => row.serial === serial), parent = fresh.find(row => row.serial === peer.serial);
+            if (!child || !parent || inventoryBindingChanged(device, child) || inventoryBindingChanged(peer, parent)
+              || peer.p2pDid !== parent.p2pDid || peer.p2pConnection !== parent.p2pConnection
+              || fresh.filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length !== 1
+              || !this.#homeBaseRecordingTrialAccount(child, parent)) throw new Error("Recording trial permission changed");
+            checkTrial();
+          }
           const currentDevice = this.#devices.get(serial);
           if (!currentDevice || inventoryBindingChanged(device, currentDevice)
             || diagnostic && (signal?.aborted || this.#recordingClosing || generation !== this.#startupGeneration
@@ -5789,6 +5828,22 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
   }
 
+  /** Require this account's explicit owner or administrator authority on both recording endpoints. */
+  #homeBaseRecordingTrialAccount(device: MegaInventoryDevice, peer: MegaInventoryDevice | undefined): boolean {
+    return !!peer && supportsExperimentalHomeBaseStoredRecordings(device, { homeBaseAttached: true, peer }, true)
+      && (this.#client.isAuthenticatedUser(device.adminUserId!) || [device, peer].every(row =>
+        (row.memberType === 1 || row.memberType === 2) && !!row.memberUserId && this.#client.isAuthenticatedUser(row.memberUserId)))
+      && [...this.#devices.values()].filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1;
+  }
+
+  /** Keep normal saved-playback trial admission separate from metadata-only history diagnostics. */
+  #homeBaseRecordingTrialAdmitted(device: MegaInventoryDevice): boolean {
+    const route = ppcsStreamRoute(device, this.#devices);
+    return this.config.experimentalModelControls === true && this.config.apiAuthenticationConfigured === true
+      && this.#client.authenticatedBinding() !== null && this.#homeBaseRecordingTrialAccount(device, route?.peer)
+      && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
+  }
+
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
@@ -6017,7 +6072,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       presetPositionControlSupported: this.#c37ControlRouteReady(device) || t817lControlsSupported || soloCamPanControlsSupported
         || supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
-      storedRecordingsSupported: supportsSoloCamStoredRecordings(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials)),
+      storedRecordingsSupported: supportsSoloCamStoredRecordings(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
+        || this.#homeBaseRecordingTrialAdmitted(device),
       aiTrackingControlSupported: this.#attachedT8171SettingReady(device, "aiTracking") || this.#c37TrackingReady(device) || t817lControlsSupported || supportsStandaloneAiTracking(
         device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials),
       ),
