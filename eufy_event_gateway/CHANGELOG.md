@@ -2,6 +2,7 @@
 
 ## 0.1.270
 
+- Require explicit entity opt-in for new experimental HomeBase volume and attached SoloCam E30 controls, preserving existing user choices.
 - Keep ordinary C31 HLS streams on short startup segments. The separate iPhone startup delay remains unconfirmed.
 - Keep dashboard recovery alive while Home Assistant waits to reopen a closed stream.
 - Add optional receive-only live audio for T8210 and T8140-Z cameras on HomeBase 2, with audio and its entity disabled by default. Audible playback still needs confirming.
