@@ -69,7 +69,7 @@ class HomeBaseVolumeTrialsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([entity.kind for entity in entities], ["prompt"])
         prompt = entities[0]
         self.assertEqual(prompt._attr_unique_id, "fixture_prompt_volume")
-        self.assertEqual(prompt._attr_name, "Prompt volume (experimental)")
+        self.assertEqual(prompt._attr_translation_key, "eufy_station_prompt_volume_experimental")
         self.assertEqual(prompt.native_value, 16)
         self.assertTrue(prompt.available)
         callbacks[0]()
