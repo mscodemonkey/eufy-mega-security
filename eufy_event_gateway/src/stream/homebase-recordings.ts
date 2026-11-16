@@ -1,5 +1,5 @@
 /**
- * Reads the tested SoloCam E30 child recordings from a HomeBase 3 session.
+ * Reads exact-model child recordings from a HomeBase 3 session.
  * The provider owns route eligibility and opaque references. This reader owns
  * correlated station history, per-download recipient keys, bounded media and
  * cancellation. Its transport borrows the session's authenticated command path.
@@ -31,6 +31,9 @@ export interface HomeBaseRecordingTransport {
   readonly stationSerial: string;
   readonly channel: number;
 
+  /** The provider supplies an exact admitted model type; older E30 callers retain type 88. */
+  readonly deviceType?: 7 | 8 | 88;
+
   /** Send one bounded station-channel10011 history query for the requested day. */
   query(transaction: string, date: string): void;
 
@@ -61,8 +64,9 @@ export function isHomeBaseRecordingPath(path: string): boolean {
   return match !== null && match[2]!.startsWith(match[1]!);
 }
 
-/** Project only completed type-88 clips owned by this child on this station. */
-export function parseHomeBaseRecordings(value: unknown, serial: string, stationSerial: string): readonly CameraStoredRecord[] {
+/** Project completed clips of the admitted type owned by this exact child and station. */
+export function parseHomeBaseRecordings(value: unknown, serial: string, stationSerial: string, deviceType: 7 | 8 | 88 = 88): readonly CameraStoredRecord[] {
+  if (![7, 8, 88].includes(deviceType)) throw new Error("Unsupported HomeBase recording type");
   if (!object(value) || value.mIntRet !== 0 || !Array.isArray(value.data)) throw new Error("HomeBase recording history was not accepted");
   const tables = value.data.filter((table: unknown) => object(table) && table.table_name === "history_record_info");
   if (tables.length !== 1 || !object(tables[0]) || !Array.isArray(tables[0].payload) || tables[0].payload.length > 100) {
@@ -74,7 +78,7 @@ export function parseHomeBaseRecordings(value: unknown, serial: string, stationS
 
     // Station history includes siblings. Only the requested child's rows can create references.
     if (row.device_sn !== serial) continue;
-    if (row.device_type !== 88 || row.station_sn !== stationSerial) throw new Error("HomeBase recording history has unexpected ownership");
+    if (row.device_type !== deviceType || row.station_sn !== stationSerial) throw new Error("HomeBase recording history has unexpected ownership");
     if (row.storage_type !== 2 || row.storage_cloud !== 0 || row.write_status !== 1 ||
       typeof row.storage_path !== "string" || !isHomeBaseRecordingPath(row.storage_path)) continue;
     const startTime = recordTime(row.start_time, row.time_zone), endTime = recordTime(row.end_time, row.time_zone);
@@ -183,7 +187,7 @@ export class HomeBaseRecordingReader {
       try {
         const value: unknown = JSON.parse(clear.subarray(clear.indexOf(123), clear.lastIndexOf(125) + 1).toString("utf8"));
         if (object(value) && value.cmd === 10011 && value.table === "history_record_info" && String(value.transaction) === this.#query.transaction) {
-          this.#query.resolve(parseHomeBaseRecordings(value, this.transport.serial, this.transport.stationSerial));
+          this.#query.resolve(parseHomeBaseRecordings(value, this.transport.serial, this.transport.stationSerial, this.transport.deviceType ?? 88));
         }
       } catch (error) {
         if (!(error instanceof SyntaxError)) this.#query.reject(new Error("HomeBase recording history was invalid"));

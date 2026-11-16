@@ -178,6 +178,12 @@
       },
       "camera_speaker_volume": {
         "name": "Højttalerlydstyrke"
+      },
+      "eufy_station_alarm_volume_experimental": {
+        "name": "Alarm lydstyrke (eksperimentel)"
+      },
+      "eufy_station_prompt_volume_experimental": {
+        "name": "Instruks lydstyrke (eksperimentel)"
       }
     },
     "select": {
