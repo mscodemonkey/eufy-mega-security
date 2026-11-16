@@ -134,7 +134,10 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SwitchEntity.__init__(self)
         self._attr_unique_id = f"{serial}_camera_enabled"
-        if self.camera.get("model") == "T8110" and self.camera.get("deviceType") == 10035:
+        if (self.camera.get("model") == "T8110" and self.camera.get("deviceType") == 10035) or (
+            self.camera.get("model") == "T8171" and self.camera.get("deviceType") == 88
+            and self.camera.get("stationSerial") not in (None, "", serial)
+        ):
             self._attr_entity_registry_enabled_default = False
             self._attr_translation_key = "camera_enabled_experimental"
 
@@ -216,6 +219,10 @@ class EufyAudioRecordingSwitch(EufyGatewayEntity, SwitchEntity):
         EufyGatewayEntity.__init__(self, coordinator, serial)
         SwitchEntity.__init__(self)
         self._attr_unique_id = f"{serial}_camera_audio_recording"
+        if (self.camera.get("model") == "T8171" and self.camera.get("deviceType") == 88
+            and self.camera.get("stationSerial") not in (None, "", serial)):
+            self._attr_entity_registry_enabled_default = False
+            self._attr_translation_key = "camera_audio_recording_experimental"
 
     @property
     def is_on(self) -> bool | None:
