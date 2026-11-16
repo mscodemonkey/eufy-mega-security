@@ -6826,7 +6826,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (!fresh || inventoryBindingChanged(identity, fresh) || identity.p2pDid !== fresh.p2pDid || !this.#hb2VolumeTrialAccount(fresh)) throw new Error("HomeBase volume permission unavailable");
         currentVolume();
       };
-      await freshVolume();
+      try { await freshVolume(); }
+      catch (error) {
+        if (access === "volume") {
+          const unavailable = { ...this.#requireStation(serial), connected: false };
+          this.#stations.set(serial, unavailable);
+          this.#events?.station(this.#withStationVolumeTrials(unavailable));
+        }
+        throw error;
+      }
       if (this.#stationHasRecordingReservation(serial)) {
         if (interruptMedia) throw new Error("Wait for HomeBase recording retrieval before changing station settings");
         return this.#requireStation(serial);

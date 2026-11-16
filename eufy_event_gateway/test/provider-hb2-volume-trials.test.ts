@@ -78,6 +78,7 @@ for (const field of ["promptVolume", "alarmVolume"] as const) {
         } else {
           await assert.rejects(invoke(17));
           assert.equal(writes, mode === "revoked-after" || mode === "read-fails-after" ? 1 : 0);
+          if (mode === "revoked-before" || mode === "account-during-read") assert.notEqual(stations.get("SYNTHETIC1234567")?.[flag], true);
           if (writes) {
             assert.equal(stations.get("SYNTHETIC1234567")?.[field], null);
             assert.notEqual(stations.get("SYNTHETIC1234567")?.[flag], true);
