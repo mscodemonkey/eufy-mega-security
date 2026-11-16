@@ -40,6 +40,10 @@ entity:
       name: Aktivér AI-sporing
     camera_ai_tracking_off:
       name: Deaktivér AI-sporing
+    camera_ai_tracking_on_experimental:
+      name: Aktivér AI-sporing (eksperimentel)
+    camera_ai_tracking_off_experimental:
+      name: Deaktivér AI-sporing (eksperimentel)
     camera_auto_cruise_on:
       name: Start automatisk patruljering
     camera_auto_cruise_off:
@@ -296,6 +300,8 @@ entity:
       name: Bevægelses detektering
     camera_audio_recording:
       name: Lydoptagelse
+    camera_audio_recording_experimental:
+      name: Lydoptagelse (eksperimentel)
     camera_live_audio:
       name: Live lyd
     camera_live_audio_experimental:

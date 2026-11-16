@@ -40,6 +40,10 @@ entity:
       name: Enable AI tracking
     camera_ai_tracking_off:
       name: Disable AI tracking
+    camera_ai_tracking_on_experimental:
+      name: Enable AI tracking (Experimental)
+    camera_ai_tracking_off_experimental:
+      name: Disable AI tracking (Experimental)
     camera_auto_cruise_on:
       name: Start automatic cruise
     camera_auto_cruise_off:
@@ -296,6 +300,8 @@ entity:
       name: Motion detection
     camera_audio_recording:
       name: Audio recording
+    camera_audio_recording_experimental:
+      name: Audio recording (Experimental)
     camera_live_audio:
       name: Live audio
     camera_live_audio_experimental:

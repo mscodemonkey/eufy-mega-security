@@ -1,6 +1,6 @@
 # HomeBase-connected SoloCam E30 control trial
 
-The exact SoloCam E30 T8171, type 88, on HomeBase 3 T8030 has opt-in camera-enable, recording-audio and AI-tracking candidates on its observed child channel. Enable experimental model controls in the gateway options to use this trial.
+The exact SoloCam E30 T8171, type 88, on HomeBase 3 T8030 has opt-in camera-enable, recording-audio and AI-tracking candidates on its observed child channel. Enable experimental model controls in the gateway options, then enable each desired experimental entity on the HomeBase-connected camera device page. New camera-enable and recording-audio switches and tracking buttons start disabled. Existing entity identities and saved user choices are retained.
 
 Each control requires its own reported value. An absent setting stays unavailable. Camera-enable uses the reported privacy bit, recording audio uses the HomeBase recording-mute bit, and tracking uses its separate tracking preference. Other connections and nearby model variants are excluded. The existing motion-detection and active-stream quality controls are unchanged.
 

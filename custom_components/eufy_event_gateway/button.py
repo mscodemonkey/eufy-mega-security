@@ -355,6 +355,10 @@ class EufyCameraAiTrackingButton(EufyGatewayEntity, ButtonEntity):
         action = "on" if enabled else "off"
         self._attr_unique_id = f"{serial}_camera_ai_tracking_{action}"
         self._attr_translation_key = f"camera_ai_tracking_{action}"
+        if (self.camera.get("model") == "T8171" and self.camera.get("deviceType") == 88
+            and self.camera.get("stationSerial") not in (None, "", serial)):
+            self._attr_entity_registry_enabled_default = False
+            self._attr_translation_key += "_experimental"
         self._attr_icon = "mdi:target-account" if enabled else "mdi:target"
 
     @property
