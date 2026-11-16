@@ -268,7 +268,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     path authorization and the final atomic recording write.
     """
 
-    _attr_name = None
+    _named_by_device = True
     _attr_content_type = "image/jpeg"
     _track_live_audio = True
 
@@ -279,6 +279,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
         Camera.__init__(self)
+        if self._named_by_device:
+            self._attr_name = None
         self._attr_unique_id = f"{serial}_camera"
         self._published_snapshot_revision = self._snapshot_revision
         self._short_hls_idle = short_hls_idle
@@ -883,6 +885,7 @@ class EufyGatewayMainLensCamera(EufyGatewayCamera):
     The combined camera and its recordings keep their existing identity.
     """
 
+    _named_by_device = False
     _attr_entity_registry_enabled_default = False
     _track_live_audio = False
 
@@ -890,7 +893,7 @@ class EufyGatewayMainLensCamera(EufyGatewayCamera):
         """Bind a video-only main crop without inheriting the combined still cache."""
         super().__init__(coordinator, serial, short_hls_idle=short_hls_idle, h264_compatibility=True)
         self._attr_unique_id = f"{serial}_main_lens_camera"
-        self._attr_name = "Main lens (Experimental)"
+        self._attr_translation_key = "main_lens_experimental"
 
     @property
     def available(self) -> bool:

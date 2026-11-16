@@ -13,6 +13,9 @@
       }
     },
     "camera": {
+      "main_lens_experimental": {
+        "name": "Primært objektiv (Eksperimentel)"
+      },
       "shared_fixed": {
         "name": "Fast (delt 720p)"
       },
