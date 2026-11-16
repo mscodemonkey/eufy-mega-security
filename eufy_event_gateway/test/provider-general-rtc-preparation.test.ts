@@ -104,7 +104,7 @@ test("every public effect method refuses before inspecting its arguments", async
   f.connect.mock.mockImplementation(async () => await new Promise<never>(() => {}));
   f.provider.prepareGeneralRtc("synthetic-one");
   const permitted = new Set(["constructor", "close", "submitCaptcha", "submitVerification", "getCaptchaChallenge", "isVerificationRequired",
-    "streamDiagnostic", "retireManualLightState", "modelControlTrials", "modelControlTrialAdmission", "nvrLiveSettingAdmitted", "nvrSharedLensViewsAdmitted", "setNvrLiveMediaChecks", "prepareGeneralRtc", "generalRtcPrepareStatus"]);
+    "streamDiagnostic", "retireManualLightState", "modelControlTrials", "modelControlTrialAdmission", "nvrLiveSettingAdmitted", "nvrSharedLensViewsAdmitted", "mainLensViewAdmitted", "setNvrLiveMediaChecks", "prepareGeneralRtc", "generalRtcPrepareStatus"]);
   assert.equal(f.provider.nvrSharedLensViewsAdmitted("missing"), false, "admission reads no device or account state over the network");
 
   // Expiring a prior light receipt is local cleanup and must survive preparation.
