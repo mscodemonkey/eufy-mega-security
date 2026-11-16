@@ -402,7 +402,10 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 self._stream_source_refreshing = False
         if stream is self._hls_idle_stream:
             return stream
-        fast_native_hls = self._fast_native_hls and self._native_video and stream is not cached
+        c31_hls = (self.camera.get("model") == "T817L"
+                   and self.camera.get("deviceType") == 10031
+                   and self.camera.get("stationSerial") in (None, "", self.serial))
+        fast_hls = (c31_hls or self._fast_native_hls and self._native_video) and stream is not cached
         add_provider = stream.add_provider
 
         def add_output(fmt: str, timeout: int | None = None) -> StreamOutput:
@@ -411,7 +414,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 if _view_of(stream.source) is not None and stream.outputs():
                     raise HomeAssistantError("Recording protection is required before adding a recorder")
                 stream.source = _with_view(stream.source, None)
-            tune_first_output = (fast_native_hls and fmt == "hls" and timeout is None
+            tune_first_output = (fast_hls and fmt == "hls" and timeout is None
                                  and not stream.outputs()
                                  and not stream.dynamic_stream_settings.preload_stream)
             provider = add_provider(
@@ -436,7 +439,9 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
 
                     # HA copies settings for each Stream. This public output
                     # shares only that camera's copy with its not-yet-started
-                    # worker. Use HA's two-second target minus its 0.1s margin.
+                    # worker. The ordinary C31 now uses HLS for URL renewal,
+                    # so its startup must not inherit six-second segments.
+                    # Use HA's two-second target minus its 0.1s margin.
                     try:
                         settings.min_segment_duration = 1.9
                     except (AttributeError, TypeError):
