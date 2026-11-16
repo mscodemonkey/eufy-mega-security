@@ -3595,8 +3595,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (profile.experimental && (!this.config.apiAuthenticationConfigured || peer.adminUserId !== device.adminUserId)) throw new CameraSettingError("unavailable");
     const administratorLight = change.setting === "manualFloodlight" && profile.experimental === true
       && this.#manual2cLightMember(device, peer);
+    const administratorSensitivity = change.setting === "motionSensitivity" && profile.experimental === true
+      && this.#hb2SensitivityMember(device, peer);
     const settingBinding = optInSetting ? this.#client.authenticatedBinding() : null;
-    if (optInSetting && (!this.config.experimentalModelControls || (!this.#client.isAuthenticatedUser(device.adminUserId) && !administratorLight) || !settingBinding)) throw new CameraSettingError("unavailable");
+    if (optInSetting && (!this.config.experimentalModelControls
+      || (!this.#client.isAuthenticatedUser(device.adminUserId) && !administratorLight && !administratorSensitivity)
+      || !settingBinding)) throw new CameraSettingError("unavailable");
     if (profile.form === "attached-quality" && peer.adminUserId !== device.adminUserId) throw new CameraSettingError("unavailable");
     cameraSettingWireValue(profile, change);
     const lightWakeSource = profile.form === "attached-light" ? this.#ppcsStreams.get(serial) : undefined;
@@ -3623,7 +3627,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         || (settingBinding !== null && !settingBinding())
         || (lightWakeSource !== undefined && (this.#ppcsStreams.get(serial) !== lightWakeSource
           || !lightWakeSource.hasAttached2CLightWakeBinding(peer.serial, current?.channel ?? null, current?.adminUserId ?? null)))
-        || (administratorLight && !this.#manual2cLightMember(current, currentPeer))) throw new CameraSettingError("unavailable");
+        || (administratorLight && !this.#manual2cLightMember(current, currentPeer))
+        || (administratorSensitivity && !this.#hb2SensitivityMember(current, currentPeer))) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
       this.#invalidateLiveReads(serial, profile.form === "attached-quality" ? [field, "s340LiveQualityMode"] : [field]);
@@ -3700,7 +3705,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } catch (error) {
       if (!dispatched && generation === this.#startupGeneration) {
         const current = this.#devices.get(serial);
-        this.#events?.camera(profile.form === "attached-quality" && current ? this.#cameraIdentity(current) : originalPublic);
+        this.#events?.camera((profile.form === "attached-quality" || administratorSensitivity) && current
+          ? this.#cameraIdentity(current) : originalPublic);
       }
       throw error;
     } finally {
@@ -5700,6 +5706,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && !!row.memberUserId && this.#client.isAuthenticatedUser(row.memberUserId));
   }
 
+  /** Bind the exact HB2 sensitivity trial to current administrator memberships on both devices. */
+  #hb2SensitivityMember(device: MegaInventoryDevice, peer: MegaInventoryDevice | undefined): boolean {
+    return device.model === "T8113-Z" && device.deviceType === 8 && peer?.model === "T8010" && peer.deviceType === 0
+      && device.parentSerial === peer.serial && device.serial !== peer.serial && !!device.adminUserId && peer.adminUserId === device.adminUserId
+      && [device, peer].every(row => (row.memberType === 1 || row.memberType === 2)
+        && !!row.memberUserId && this.#client.isAuthenticatedUser(row.memberUserId));
+  }
+
   #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
@@ -5773,7 +5787,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && supportsStandaloneC31Presets(device, route, isPpcsRouteReady(device, this.#devices, dskPeerSerials))
         && device.reads.speakerEnabled === true && supportsC31LiveTalkbackAccount(device, id => this.#client.isAuthenticatedUser(id)),
       motionSensitivityControlSupported: settingRouteReady && sensitivityProfile !== null
-        && (sensitivityProfile.experimental !== true || experimentalSettingsReady && this.config.apiAuthenticationConfigured === true
+        && (sensitivityProfile.experimental !== true || this.config.experimentalModelControls === true
+          && (experimentalSettingsReady || this.#hb2SensitivityMember(device, route?.peer)) && this.config.apiAuthenticationConfigured === true
           && this.#client.authenticatedBinding() !== null && route?.peer.adminUserId === device.adminUserId)
         && (!["motion-control", "solo-sensitivity"].includes(sensitivityProfile.form) || experimentalSettingsReady)
         && (sensitivityProfile.form !== "solo-sensitivity" || this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null)
