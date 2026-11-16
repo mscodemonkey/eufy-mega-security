@@ -196,6 +196,9 @@ export class PushClient extends EventEmitter {
   /** Consecutive MCS login rejections — transient ones self-heal via reconnect (see {@link onMessage}). */
   private loginFailures = 0;
 
+  /** Socket-local counts distinguish received bytes from decoded notification stanzas. */
+  private receiveProgress = { chunks: 0, bytes: 0, frames: 0, deliveries: 0, heartbeats: 0, decodeFailures: 0 };
+
   /**
    * Retain an Android identity for reconnects without changing its credentials.
    *
@@ -234,6 +237,7 @@ export class PushClient extends EventEmitter {
     this.loggedIn = false;
     this.receivedStreamId = 0;
     this.unacknowledgedMessages = 0;
+    this.receiveProgress = { chunks: 0, bytes: 0, frames: 0, deliveries: 0, heartbeats: 0, decodeFailures: 0 };
     const socket = this.transport.connect();
     this.rawConnection = observeRawSocket(socket, "android_push", "tls");
     this.socket = socket;
@@ -253,12 +257,15 @@ export class PushClient extends EventEmitter {
     });
     socket.on("data", (d: Buffer) => {
       if (this.socket !== socket) return;
+      this.receiveProgress.chunks++;
+      this.receiveProgress.bytes += d.length;
 
       // Any inbound bytes prove the connection is still alive.
       this.clearHeartbeatReplyTimer();
       try {
         this.parser.handleData(d);
       } catch {
+        this.receiveProgress.decodeFailures++;
         recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "parse_or_dispatch_failed" } });
         this.emit("error", Object.assign(new Error("Android MCS frame could not be decoded"), { code: "MCS_DECODE_FAILED" }));
         socket.destroy();
@@ -308,6 +315,9 @@ export class PushClient extends EventEmitter {
   }
 
   private onMessage(m: McsMessage): void {
+    this.receiveProgress.frames++;
+    if (m.tag === MessageTag.DataMessageStanza) this.receiveProgress.deliveries++;
+    if (m.tag === MessageTag.HeartbeatPing || m.tag === MessageTag.HeartbeatAck) this.receiveProgress.heartbeats++;
     recordRaw({ boundary: "android_push_decode", connection: this.rawConnection, direction: "decode", metadata: { event: "frame_parsed", frame: m } });
     if (this.loggedIn) {
       this.receivedStreamId++;
@@ -425,6 +435,7 @@ export class PushClient extends EventEmitter {
     this.heartbeatTimer = setInterval(() => {
       const socket = this.socket;
       if (!socket || !this.loggedIn) return;
+      this.logReceiveProgress("heartbeat");
       socket.write(this.buildHeartbeatPing());
       this.unacknowledgedMessages = 0;
       if (this.heartbeatReplyTimer) return;
@@ -453,12 +464,28 @@ export class PushClient extends EventEmitter {
   }
 
   private onClose(): void {
+    this.logReceiveProgress("closed");
     this.stopHeartbeat();
     this.clearLoginTimer();
     this.loggedIn = false;
     if (!this.closing) {
       this.emit("disconnect");
       this.scheduleReconnect();
+    }
+  }
+
+  /** Report only counts at existing lifecycle checkpoints, before deduplication or event parsing. */
+  private logReceiveProgress(checkpoint: "heartbeat" | "closed"): void {
+    const progress = this.receiveProgress;
+    try {
+      logger.info("mcs_receive_status", [
+        `checkpoint=${checkpoint}`, `chunks=${progress.chunks}`, `bytes=${progress.bytes}`,
+        `frames=${progress.frames}`, `data_stanzas=${progress.deliveries}`,
+        `heartbeat_frames=${progress.heartbeats}`, `decode_failures=${progress.decodeFailures}`,
+      ].join(" "));
+    } catch {
+
+      // Support output must not interrupt heartbeat transmission or reconnect.
     }
   }
 

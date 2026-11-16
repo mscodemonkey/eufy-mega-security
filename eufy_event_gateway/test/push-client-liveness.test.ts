@@ -2,6 +2,8 @@
  * Exercises Android push connection liveness without a network.
  * A fake socket stands in for the MCS TLS connection so the tests can show a
  * silently dropped connection is abandoned instead of reported as connected.
+ * Test-owned sockets also qualify payload-free receive observations consumed
+ * by support logs, without changing a real account or transport.
  */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -303,4 +305,44 @@ test("a decode failure emits a fixed diagnostic tag and keeps private parser err
   assert.equal(errors[0]!.message, "Android MCS frame could not be decoded");
   assert.doesNotMatch(JSON.stringify(errors), /PRIVATE_PARSER_SENTINEL/);
   push.close();
+});
+
+test("receive checkpoints distinguish partial bytes, heartbeat replies and duplicate deliveries", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const logs: string[] = [];
+  context.mock.method(process.stdout, "write", ((chunk: unknown) => {
+    logs.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
+  const sockets: FakeSocket[] = [];
+  const push = client(sockets);
+  context.after(() => push.close());
+  push.on("error", () => undefined);
+  let messages = 0;
+  push.on("message", () => messages++);
+  push.connect();
+  const socket = sockets[0]!;
+  socket.emit("data", loginResponse());
+  const frame = delivery("PRIVATE_PROGRESS_ID");
+  socket.emit("data", frame.subarray(0, 2));
+  context.mock.timers.tick(20);
+  const partial = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
+  assert.match(partial, /chunks=2 bytes=\d+ frames=1 data_stanzas=0 heartbeat_frames=0 decode_failures=0/);
+  socket.emit("data", frame.subarray(2));
+  socket.emit("data", frame);
+  socket.emit("data", heartbeatAck());
+  context.mock.timers.tick(20);
+  const complete = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
+  assert.match(complete, /chunks=5 bytes=\d+ frames=4 data_stanzas=2 heartbeat_frames=1 decode_failures=0/);
+  assert.equal(messages, 1, "transport observations precede unchanged duplicate suppression");
+  socket.destroy();
+  await Promise.resolve();
+  assert.match(logs.at(-1)!, /checkpoint=closed.*frames=4 data_stanzas=2/);
+  context.mock.timers.tick(5000);
+  sockets[1]!.emit("data", loginResponse());
+  socket.emit("data", frame);
+  context.mock.timers.tick(20);
+  const fresh = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
+  assert.match(fresh, /chunks=1 bytes=\d+ frames=1 data_stanzas=0 heartbeat_frames=0 decode_failures=0/);
+  assert.doesNotMatch(logs.filter(line => line.includes("event=mcs_receive_status")).join(""), /PRIVATE_PROGRESS_ID|synthetic-sender|synthetic-app|1234567890|987654321/);
 });
