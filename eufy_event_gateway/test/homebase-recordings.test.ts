@@ -79,6 +79,20 @@ test("station rows create references only for exact owned completed type88 HomeB
   for (const invalid of [path.replace("/test/", "/../"), path.replace("20261009114516.zxvideo", "20261009114517.zxvideo"), path + "\0", path.replace("202610/", "202609/")]) assert.equal(isHomeBaseRecordingPath(invalid), false);
 });
 
+for (const deviceType of [7, 8] as const) {
+  test(`trial recording type ${deviceType} cannot borrow another model or station's clips`, () => {
+    const own = { ...row, device_type: deviceType };
+    const table = (rows: unknown[]) => ({ mIntRet: 0, data: [{ table_name: "history_record_info", payload: rows }] });
+    assert.equal(parseHomeBaseRecordings(table([own]), serial, stationSerial, deviceType).length, 1);
+    assert.equal(parseHomeBaseRecordings(table([{ ...row, device_sn: "SIBLING" }, own]), serial, stationSerial, deviceType).length, 1);
+    assert.throws(() => parseHomeBaseRecordings(table([own]), serial, stationSerial), /ownership/);
+    assert.throws(() => parseHomeBaseRecordings(table([{ ...own, device_type: 88 }]), serial, stationSerial, deviceType), /ownership/);
+    assert.throws(() => parseHomeBaseRecordings(table([{ ...own, station_sn: "FOREIGN" }]), serial, stationSerial, deviceType), /ownership/);
+    assert.equal(parseHomeBaseRecordings(table([{ ...own, storage_path: "/etc/passwd" }]), serial, stationSerial, deviceType).length, 0);
+    assert.equal(parseHomeBaseRecordings(table([{ ...own, storage_cloud: 1 }]), serial, stationSerial, deviceType).length, 0);
+  });
+}
+
 test("history requires parent channel, exact command/table and current transaction; close rejects pending work", async () => {
   let transaction = "";
   const reader = new HomeBaseRecordingReader(transport({ query: (id) => { transaction = id; } }));
