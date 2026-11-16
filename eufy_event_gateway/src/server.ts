@@ -463,9 +463,10 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-main.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-main.h264" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
+            || segments[3] === "live-fixed-native.annexb" || segments[3] === "live-movable-native.annexb") &&
           segments.length === 4 &&
-          (segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
+          (segments[3] === "live-native.annexb" || segments[3] === "live-native.ts" || segments[3] === "live-fixed-native.annexb" || segments[3] === "live-movable-native.annexb"
             ? url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
               && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken)
             : validateStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken));
@@ -1405,7 +1406,7 @@ export class GatewayServer {
         return await this.streams.addMainLensClient(serial, response);
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
-        && ["live-fixed.h264", "live-movable.h264", "snapshot-fixed", "snapshot-movable"].includes(segments[3]!)) {
+        && ["live-fixed.h264", "live-movable.h264", "live-fixed-native.annexb", "live-movable-native.annexb", "snapshot-fixed", "snapshot-movable"].includes(segments[3]!)) {
         const lens: SharedLens = segments[3]!.includes("fixed") ? "fixed" : "movable";
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
         if (!this.provider.nvrSharedLensViewsAdmitted?.(segments[2]!)) return json(response, 409, { error: "Select the admitted NVR Both view before opening a lens" });
@@ -1417,6 +1418,10 @@ export class GatewayServer {
           if (!image) return this.#waitingImage(response);
           response.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": image.length, "Cache-Control": "no-store" });
           response.end(image); return;
+        }
+        if (segments[3]!.endsWith("-native.annexb")) {
+          logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(segments[2]!).model)} operation=lens_view_native lens=${lens}`);
+          return await this.streams.addNativeLensClient(segments[2]!, lens, response);
         }
         return await this.streams.addLensClient(segments[2]!, lens, response);
       }
@@ -1856,7 +1861,7 @@ export class GatewayServer {
       : null;
     const audio = this.state.getCamera(serial).liveAudioSupported === true
       && (requestedAudio === "on" || requestedAudio === undefined && profile !== "native");
-    const media = lens ? `live-${lens}.h264` : profile === "native" ? audio ? "live-native.ts" : "live-native.annexb" : audio ? "live.ts" : "live.h264";
+    const media = lens ? profile === "native" ? `live-${lens}-native.annexb` : `live-${lens}.h264` : profile === "native" ? audio ? "live-native.ts" : "live-native.annexb" : audio ? "live.ts" : "live.h264";
     const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
     if (profile === "native" || lens) response.setHeader("Cache-Control", "no-store");
     return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}), ...(lens ? { lens } : {}) });
@@ -2109,7 +2114,8 @@ async function readStreamProfile(request: IncomingMessage): Promise<StreamReques
   if (audio !== undefined && audio !== "on" && audio !== "off") throw new SyntaxError("Invalid stream profile");
   const lens = fields.get("lens");
   if (lens !== undefined && lens !== "fixed" && lens !== "movable" && lens !== "main") throw new SyntaxError("Invalid lens");
-  if (lens && (profile === "native" || audio === "on")) throw new SyntaxError("Lens views are compatible video only");
+  if (lens && audio === "on") throw new SyntaxError("Lens views are video only");
+  if (lens === "main" && profile === "native") throw new SyntaxError("Main lens views require the checked crop");
   return { profile, audio, ...(lens ? { lens } : {}) };
 }
 

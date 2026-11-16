@@ -19,6 +19,8 @@ import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
 import type { EventNameHistorySummary } from "../stream/homebase-event-names.js";
 import type { LocalMotionSummary } from "../stream/local-motion-trial.js";
 import type { C31IndexSummary, C31IndexWindow } from "../stream/c31-recording-index.js";
+import type { NvrLensCall } from "../stream/native-lens-views.js";
+import type { SharedLens } from "../stream/shared-lens-views.js";
 import type { CameraSettingChange } from "./camera-settings.js";
 import type { E30LockSettingChange } from "../domain/types.js";
 import type { NvrStateSummary } from "../stream/nvr-protocol.js";
@@ -98,6 +100,9 @@ export interface CameraProvider {
 
   /** Read current exact E340/HB3 derived-view admission without opening media. */
   mainLensViewAdmitted?(serial: string): boolean;
+
+  /** Open one lens on its own native NVR call for a pane, within the NVR's call budget. */
+  openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
 
 
   /**

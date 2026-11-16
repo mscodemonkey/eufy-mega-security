@@ -79,7 +79,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 ### Cameras
 
-- 🟠 Outdoor Cam E210 T8442, type 46 through HomeBase 3 T8030: camera entities, motion/person/pet/vehicle events, retained event pictures and a restricted live-video candidate are implemented. The reporter confirmed discovery, person-event pictures and H.264 live playback on three cameras with both parts on v0.1.263 in [#770](https://github.com/mscodemonkey/eufy-mega-security/issues/770). The latest report confirms person, pet and vehicle pictures and successful idle starts, while failures clustered just after restart. Vehicle entity projection and dummy battery suppression are corrected, with HA confirmation pending. Sound, stranger and dog events remain unconfirmed on this route. Reliable startup remains unconfirmed. Camera controls and live audio remain unavailable. This does not qualify the standalone route.
+- 🟠 Outdoor Cam E210 T8442, type 46 through HomeBase 3 T8030: camera entities, motion/person/pet/vehicle events, retained event pictures and a restricted live-video candidate are implemented. The reporter confirmed discovery, person-event pictures and H.264 live playback on three cameras with both parts on v0.1.263 in [#770](https://github.com/mscodemonkey/eufy-mega-security/issues/770). The latest report confirms person, pet and vehicle pictures and successful idle starts, while failures clustered just after restart. Vehicle entity projection and dummy battery suppression are corrected and reporter-confirmed in HA. Sound, stranger and dog events remain unconfirmed on this route. Reliable startup remains unconfirmed. Camera controls remain unavailable. A default-off Live audio (Experimental) trial is implemented, with audible playback unconfirmed. This does not qualify the standalone route.
 - ✅ EufyCam 2C T8113-Z: discovery, snapshots, live video, and motion events have been confirmed on real hardware. Person events work through HomeBase 3, while the reported HomeBase 2 notification carries only generic motion evidence. The exact type-8 model can receive live audio through HomeBase 2 T8010 and HomeBase 3 T8030 using the normal Live audio switch, which stays off by default. This does not add talkback or qualify other 2C model variants.
 - 🟠 eufyCam C35 T8110: Mega type 10035 is admitted through its reported HomeBase 3 route. Discovery, events, snapshots, live video, and battery entities await reporter testing.
 - 🟠 eufyCam 2 Pro T8140-R: discovery, snapshots, live video, and motion events are confirmed through HomeBase 2. Battery values and person detection still need work on the reported setup.
@@ -87,7 +87,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 - ✅ Wired Cam C31 T817L: live streams, snapshots, preset discovery and movement, AI tracking, and automatic cruise produced on real hardware through HomeBase 3. Tracking and cruise are exposed as explicit actions because they do not provide readable persistent state.
 - ✅ eufyCam S330 (Mega model T8160): discovered with sensors, retained images, and live streaming through HomeBase 3.
 - ✅ eufyCam S300 / 3C T8161: discovery, person events, and live video are confirmed through HomeBase 3. Discovery, events, and retained snapshots are confirmed through a T9000, where live video remains blocked at PPCS lookup.
-- 🟠 eufyCam S3 Pro T8162: HomeBase 3 discovery, snapshots, H.265 live video, motion and person events are reporter-confirmed. T9000 discovery, person, pet, vehicle, and retained snapshots are confirmed, with short H.265 T9000 diagnostic views now reporter-confirmed. Normal HA live-view admission is implemented for the exact T8162/type 26 and T9000/type 27 pairing behind Experimental NVR live, with ordinary HA playback, live audio and controls still unconfirmed. Event-image decoding and a meaningful signal value remain unconfirmed.
+- 🟠 eufyCam S3 Pro T8162: HomeBase 3 discovery, snapshots, H.265 live video, motion and person events are reporter-confirmed. T9000 discovery, person, pet, vehicle, and retained snapshots are confirmed, with short H.265 T9000 diagnostic views now reporter-confirmed. Normal HA live-view admission is implemented for the exact T8162/type 26 and T9000/type 27 pairing behind Experimental NVR live, with ordinary HA playback now reporter-confirmed on both cameras in v0.1.269, including eight starts and no reported gaps. Live audio and controls remain unconfirmed. Event-image decoding and a meaningful signal value remain unconfirmed.
 - ✅ SoloCam S220 / C20 (reported model T8134): discovery, direct H.264 live video, motion and person events, battery percentage/health/temperature/charging and camera enablement are reporter-confirmed on two direct Wi-Fi cameras, firmware 3.3.6.0, with v0.1.237. Follow-up on v0.1.241 confirms fresh snapshot capture and video-only MP4 recording. Default compatible video starts in about 1 to 3 seconds and plays stably. Native mode without faster startup took over 30 seconds and initially froze. Event pictures remain stale outside live view. The v0.1.248 diagnostic counted clear AAC from this route. Receive audio uses the existing Live audio switch, off by default. The reporter confirmed audible playback on v0.1.253, including some first views. Other first views still reach the twelve-second audio limit without sound and need reopening. Successful native audio can arrive after about ten seconds, so consistent first-view audio and faster startup remain unresolved. An exact direct-route live-quality candidate is available behind Experimental model controls, with an existing owner account, API authentication and fresh baseline/readback requirements. Physical quality changes remain unconfirmed, and talkback and other settings remain in #620. The remaining picture and receive-audio gaps are tracked in #618.
 - ✅ SoloCam E30 T8171, Mega type 88: standalone discovery, detection events, snapshots, live video with audio, recorded-audio control, AI tracking and preset movement are confirmed on hardware. SD event recordings also play through Home Assistant. HomeBase 3 discovery, runtime name refresh, fresh snapshots, live video with audio and infrared controls are also hardware-tested. HomeBase saved event playback is also verified through Home Assistant, and both saved preset positions and default return are hardware-tested. Other HomeBase controls still need separate tests.
 - ✅ eufyCam S4 T8172: discovery, motion, person and vehicle events, fresh snapshots, and live video are confirmed through HomeBase 3. The default-off T9000 RTC route has reporter-confirmed successful starts on v0.1.248. Cross-camera switching and sustained playback remain unconfirmed. Standalone event pictures still fail with HTTP 404 on v0.1.248 in [#325](https://github.com/mscodemonkey/eufy-mega-security/issues/325).
@@ -118,7 +118,7 @@ Green ticks mark behaviour tested on real hardware. Amber marks features we have
 
 - 🟠 Video Doorbell T8200: a standalone wired camera on firmware 2.354 has reporter-confirmed discovery, live view, person and motion events, a physical doorbell press that returns to off after about ten seconds, and a Last event image thumbnail with app and integration v0.1.262. This does not settle the earlier startup stutter or separate push-registration report. On-demand snapshots and the other exposed sensors remain untested on that setup.
 - 🟠 Video Doorbell S4 T8215: exact type 97 discovery, battery readings, motion, person and button-press events are reporter-confirmed through HomeBase Professional S1. Snapshots and normal live video with close/reopen are reporter-confirmed. The latest result confirms the extra Play press is no longer needed after v0.1.252. Controls and separate Chime 2 T8026 support remain unconfirmed.
-- ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view. The exact type-7 route through HomeBase 3 T8030 now supports received live audio. Actual HA HLS decoded both H.264 and AAC with the normal Live audio switch enabled. That switch stays off by default. HomeBase 2 audio and talkback remain unconfirmed.
+- ✅ Video Doorbell T8210: live streams and snapshots produced on real hardware. One HomeBase 2 reporter now has smooth playback, while another still receives video data without a rendered view. The exact type-7 route through HomeBase 3 T8030 now supports received live audio. Actual HA HLS decoded both H.264 and AAC with the normal Live audio switch enabled. That switch stays off by default. Exact T8210/type 7 and T8140-Z/type 14 through T8010/type 0 also have a receive-only [HomeBase 2 audio trial](docs/HB2_LIVE_AUDIO.md). Its Live audio (Experimental) entity starts disabled and the audio choice starts off. It accepts checked AAC from the existing video session, with audible playback still unconfirmed. HomeBase 2 microphone talkback remains unavailable.
 - 🟠 Video Doorbell T8213: discovery, sensors, retained images, and live video are confirmed through HomeBase 3. A second HomeBase 3 setup now shows live video from both lenses on v0.1.123, while fresh snapshots and longer-term reliability on that setup remain unconfirmed.
 - 🟠 Video Doorbell Slim T8220: discovery and live video through HomeBase 2 are reporter-confirmed. Slow startup and continued streaming after the view closes are reported. Events, fresh snapshots, and battery values still await confirmation.
 - 🟠 Video Doorbell E340 T8214: discovery and Home Assistant entities are confirmed through a T9000. A separate T8030 report confirms live video, motion, person, familiar-person updates, and restored doorbell presses, but reports intermittent frame jumps. T9000 live video remains blocked at lookup, and missing push deliveries are under investigation separately.
@@ -525,16 +525,21 @@ Standalone installs can set `EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE=true`
 with a configured API token. Disabling the option restores ordinary transport
 playback after restarting the app.
 
-### Experimental shared NVR lens cameras
+### Experimental NVR lens cameras
 
 For an owned T8E00 on T8N00, the existing experimental NVR controls can expose
-optional Fixed and Movable camera entities from one Both feed. Both entities
-start disabled in HA. Each shows its own 1280x720 video-only pane and retained
-image, sharing one camera connection and decoder. They require Both view and
-keep the NVR call while either view or its recording is active. A reporter confirmed both panes playing together on v0.1.262, their physical
+optional **Fixed lens** and **Movable lens** camera entities. Both start disabled in HA
+and require Both view. Each plays its own lens on its own NVR call, 1920x1080
+H.265 with no conversion, and keeps that call while its view or recording is
+active. Both panes and one ordinary view fit the NVR's call limit. The NVR ends
+all of the gateway's calls when one hangs up, so a call that is no longer in use
+stays connected with no camera while other calls on that NVR are, and the next
+view reuses it. With H.264
+compatibility on, the panes instead share one Both call and decoder as two
+1280x720 H.264 panes. A reporter confirmed both shared panes playing together on v0.1.262, their physical
 lens identities, continued playback after one closed and a single final call
 close in [#433](https://github.com/mscodemonkey/eufy-mega-security/issues/433).
-Longer playback and other camera/station pairings remain unconfirmed. See [shared lens setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-shared-720p-lens-entities).
+Longer playback and other camera/station pairings remain unconfirmed. See [lens entity setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-lens-entities).
 
 ### Experimental fixed H.265 viewer resolution
 
@@ -567,8 +572,8 @@ The saving costs detail and smoothness in each pane:
 | NVR Both view, 1280 by 1440 stacked, as one camera | each lens 1280 by 720 | 640 by 720 stacked, so each lens 640 by 360 |
 
 With `experimental_fixed_h265_resolution` also on, the fixed 1920 by 1080 size
-applies and only the picture rate is halved. The shared 720p lens cameras have
-their own conversion, which this option does not change. The profile was measured only on a
+applies and only the picture rate is halved. The lens cameras are native, or
+with H.264 compatibility have their own conversion, which this option does not change. The profile was measured only on a
 Home Assistant Green with a 1080p, 15 fps S350 behind an NVR S4, where it kept
 the converted view about 2.5 seconds behind live. Other cameras and hosts are
 unconfirmed. Standalone installs can set

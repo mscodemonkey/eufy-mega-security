@@ -58,6 +58,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.coordinator = SimpleNamespace(client=SimpleNamespace(hold_live_view=AsyncMock(return_value=True), live_view_handover_supported=True, hls_view_idle_supported=True), recording_holds=set())
         self.camera.coordinator = self.coordinator
         self.stream = SimpleNamespace(source=URL, available=True, update_source=Mock(), outputs=Mock(return_value={}),
+                                      get_diagnostics=Mock(return_value={}),
                                       add_provider=Mock(return_value=SimpleNamespace(idle_timer=Mock())),
                                       dynamic_stream_settings=SimpleNamespace(preload_stream=False))
         self.base.async_create_stream.return_value = self.stream
@@ -73,6 +74,17 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(await self.camera.async_create_stream(), self.stream)
         old.stop.assert_awaited_once()
         self.assertIsNone(self.camera.stream)
+
+    async def test_a_native_pane_keeps_its_stream_while_the_main_camera_is_idle(self) -> None:
+        """The pane's own call is running even though the main camera's source is idle."""
+        old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value={"hls": object()}), available=True,
+                              add_provider=Mock(), dynamic_stream_settings=SimpleNamespace(preload_stream=False))
+        self.base.async_create_stream.return_value = old
+        self.camera.stream = old
+        self.camera.camera = {"stream": {"state": "idle"}}
+        self.camera._own_nvr_call = True
+        self.assertIs(await self.camera.async_create_stream(), old)
+        old.stop.assert_not_awaited()
 
     async def test_a_starting_preloaded_or_recording_stream_is_kept(self) -> None:
         for state, preload, outputs in (("starting", False, {"hls": 1}), ("idle", True, {"hls": 1}), ("idle", False, {"recorder": 1})):
@@ -213,6 +225,28 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
     async def test_handover_without_activity_support_keeps_the_source_unmarked(self) -> None:
         self.coordinator.client.hls_view_idle_supported = False
         self.assertIsNone(self._view(await self._camera_b().stream_source()))
+
+    async def test_worker_failure_keeps_ordinary_idle_timeout_during_and_after_retry(self) -> None:
+        """A stopped media source must have time to reopen without preload.
+
+        HA retries after ten seconds and marks the worker available before new
+        segments arrive. Its normal idle timer remains the cleanup boundary
+        after a failure, including that available-but-still-buffering interval.
+        """
+        self.camera.stream = None
+        self.stream.source = self.namespace["_new_view"](URL, tracked=True)
+        self.stream.get_diagnostics = Mock(return_value={})
+        await self.camera.async_create_stream()
+        provider = self.stream.add_provider("hls")
+        self.stream.outputs.return_value = {"hls": provider}
+        allowed = self.namespace["HlsViewActivity"].install.call_args.args[1]
+        self.assertTrue(allowed())
+        self.stream.get_diagnostics.return_value = {"worker_error": 1, "retry_timeout": 10}
+        self.stream.available = False
+        self.assertFalse(allowed())
+        self.stream.available = True
+        self.assertFalse(allowed())
+        self.assertFalse(self.stream.dynamic_stream_settings.preload_stream)
 
     async def test_output_observer_is_installed_once_and_checks_all_ha_owners(self) -> None:
         self.stream.source = self.namespace["_new_view"](URL, True)

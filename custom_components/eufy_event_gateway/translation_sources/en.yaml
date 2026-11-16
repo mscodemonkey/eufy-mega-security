@@ -11,9 +11,9 @@ entity:
     main_lens_experimental:
       name: Main lens (Experimental)
     shared_fixed:
-      name: Fixed (shared 720p)
+      name: Fixed lens
     shared_movable:
-      name: Movable (shared 720p)
+      name: Movable lens
     event_image:
       name: Event image
   image:
