@@ -1044,6 +1044,16 @@ export function buildReviewedCameraSettingPayload(
   }
   if (profile.form === "manual-light" || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality") throw new Error("Setting requires its native level-one envelope");
   const native = cameraSettingWireValue(profile, change);
+  if (profile.form === "attached-privacy" || profile.form === "attached-audio") {
+    const fields = profile.form === "attached-privacy" ? { switch: native } : { record_mute: native, channel: route.channel };
+    const clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: profile.readParam, mChannel: route.channel, mValue3: 0, payload: fields }));
+    return { command: 1350, payload: rawPayload(encryptLevel2(clear, key, sequence), route.channel!, 8, [8, 0], 0) };
+  }
+  if (profile.form === "attached-tracking") {
+    const clear = Buffer.from(JSON.stringify({ commandType: 6016, data: { value: native } }));
+    const roundedLength = (Math.ceil(clear.length / 4) * 4) & 0xff;
+    return { command: 1700, payload: rawPayload(encryptLevel2(clear, key, sequence), route.channel!, 8, [8, roundedLength], 0) };
+  }
   if (profile.form === "privacy") {
     const clear = Buffer.from(JSON.stringify({ account_id: accountId, cmd: 6250, mChannel: 0, mValue3: 0,
       payload: { switch: native } }));
