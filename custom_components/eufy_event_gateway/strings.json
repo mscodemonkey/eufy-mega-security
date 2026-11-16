@@ -181,12 +181,6 @@
       },
       "camera_speaker_volume": {
         "name": "Speaker volume"
-      },
-      "eufy_station_alarm_volume_experimental": {
-        "name": "Alarm volume (experimental)"
-      },
-      "eufy_station_prompt_volume_experimental": {
-        "name": "Prompt volume (experimental)"
       }
     },
     "select": {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.270
+
+- Keep ordinary C31 HLS streams on short startup segments. The separate iPhone startup delay remains unconfirmed.
+- Keep dashboard recovery alive while Home Assistant waits to reopen a closed stream.
+- Add optional receive-only live audio for T8210 and T8140-Z cameras on HomeBase 2, with audio and its entity disabled by default. Audible playback still needs confirming.
+- Add an optional E340 main-lens camera and retained snapshot for the reviewed combined-picture layout. The original combined view remains available.
+- Give each supported S4 NVR lens pane its own native video call, preserving the other active views during cleanup.
+- Add guarded local HomeBase 3 SoloCam E30 setting trials, with fresh reported baselines and account checks before a change.
+- Add optional HomeBase 3 saved-playback trials for the reviewed 2C and T8210 routes. The tested 2C result does not confirm every camera or doorbell.
+- Admit HomeBase 2 prompt and alarm volume trials independently when their own current readings are available.
+- Show count-only notification receive progress before event filtering. This is diagnostic information, not a confirmed notification-delivery repair.
+- Correct S3 Pro and E210 compatibility notes to distinguish confirmed results from unconfirmed audio and controls.
+
 ## 0.1.269
 
 - Add an opt-in HomeBase 2 2C sensitivity trial with exact model and owner checks, fresh state confirmation and a disabled-by-default HA entity. Physical changes and restoration remain unconfirmed.
