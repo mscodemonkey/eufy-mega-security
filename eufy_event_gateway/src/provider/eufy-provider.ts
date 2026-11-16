@@ -3358,7 +3358,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   setCameraEnabled(serial: string, enabled: boolean): Promise<CameraIdentity> {
     const selected = this.#devices.get(serial);
     if (selected?.model === "T8171" && ppcsStreamRoute(selected, this.#devices)?.homeBaseAttached) {
-      return this.setCameraSetting(serial, { setting: "cameraEnabled", value: enabled });
+      return this.#queueAttachedT8171Setting(serial, { setting: "cameraEnabled", value: enabled });
     }
     if (selected?.model === "T8110" && selected.deviceType === 10035) {
       return this.setCameraSetting(serial, { setting: "cameraEnabled", value: enabled });
@@ -3599,6 +3599,28 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#cameraOperations.get(serial) === current) this.#cameraOperations.delete(serial);
     }).catch(() => undefined);
     return current;
+  }
+
+  /** Retain synchronous queue ownership until the confirmed setting reserves its peer. */
+  #queueAttachedT8171Setting(serial: string, change: CameraSettingChange, signal?: AbortSignal): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
+    this.#assertCameraControlsAdmitted(serial);
+    this.#assertLegacyCamera(serial);
+    this.#assertNoModelTrial(serial);
+    if (this.#cameraOperations.has(serial)) return Promise.reject(new CameraSettingError("busy"));
+    const operation = Promise.resolve().then(() => {
+      if (this.#cameraOperations.get(serial) !== operation) throw new CameraSettingError("busy");
+
+      // The following synchronous prefix reserves the peer before its first
+      // await. Its own queue marker must not be mistaken for another control.
+      this.#cameraOperations.delete(serial);
+      return this.setCameraSetting(serial, change, signal);
+    });
+    this.#cameraOperations.set(serial, operation);
+    void operation.finally(() => {
+      if (this.#cameraOperations.get(serial) === operation) this.#cameraOperations.delete(serial);
+    }).catch(() => undefined);
+    return operation;
   }
 
   /** Own one peer until a single reviewed setting is freshly confirmed or invalidated. */
@@ -4466,7 +4488,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   setCameraAudioRecording(serial: string, enabled: boolean): Promise<CameraIdentity> {
     const selected = this.#devices.get(serial);
     if (selected?.model === "T8171" && ppcsStreamRoute(selected, this.#devices)?.homeBaseAttached) {
-      return this.setCameraSetting(serial, { setting: "audioRecording", value: enabled });
+      return this.#queueAttachedT8171Setting(serial, { setting: "audioRecording", value: enabled });
     }
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
@@ -6254,7 +6276,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   setCameraAiTracking(serial: string, enabled: boolean, signal?: AbortSignal): Promise<void> {
     const selected = this.#devices.get(serial);
     if (selected?.model === "T8171" && ppcsStreamRoute(selected, this.#devices)?.homeBaseAttached) {
-      return this.setCameraSetting(serial, { setting: "aiTracking", value: enabled }, signal).then(() => undefined);
+      return this.#queueAttachedT8171Setting(serial, { setting: "aiTracking", value: enabled }, signal).then(() => undefined);
     }
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
