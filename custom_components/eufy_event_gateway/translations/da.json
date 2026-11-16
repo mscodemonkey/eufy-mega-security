@@ -176,8 +176,14 @@
       "camera_notification_interval": {
         "name": "Notifikationsinterval"
       },
+      "eufy_station_alarm_volume_experimental": {
+        "name": "Alarm lydstyrke (eksperimentel)"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm lydstyrke"
+      },
+      "eufy_station_prompt_volume_experimental": {
+        "name": "Instruks lydstyrke (eksperimentel)"
       },
       "eufy_station_prompt_volume": {
         "name": "Instruks lydstyrke"

@@ -6,6 +6,7 @@ and component bases supply only camera metadata for the registration boundary.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -62,6 +63,17 @@ class ExperimentalControlDefaultsTest(unittest.TestCase):
         self.assertEqual([entity._attr_unique_id for entity in entities],
                          ["fixture_camera_enabled", "fixture_camera_audio_recording",
                           "fixture_camera_ai_tracking_on", "fixture_camera_ai_tracking_off"])
+
+    def test_trial_names_survive_translation_generation(self):
+        """Keep the trial label keys present in every shipped translation artifact."""
+        root = Path(__file__).parents[1] / "custom_components/eufy_event_gateway"
+        for name in ("strings.json", "translations/en.json", "translations/da.json"):
+            entities = json.loads((root / name).read_text())["entity"]
+            self.assertIn("camera_audio_recording_experimental", entities["switch"])
+            for action in ("on", "off"):
+                self.assertIn(f"camera_ai_tracking_{action}_experimental", entities["button"])
+            for kind in ("alarm", "prompt"):
+                self.assertIn(f"eufy_station_{kind}_volume_experimental", entities["number"])
 
     def test_ordinary_and_standalone_controls_keep_their_defaults(self):
         """Do not widen the presentation change to proven routes or nearby models."""
