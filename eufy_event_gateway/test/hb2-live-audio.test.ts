@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { supportsCameraLiveAudio, supportsExperimentalHb2LiveAudio } from "../src/provider/eufy-provider.js";
-import type { MegaInventoryDevice } from "../src/mega/inventory.js";
+import type { MegaInventoryDevice } from "../src/provider/eufy-provider.js";
 import { acceptsSoloCamAudio } from "../src/stream/first-party-ppcs.js";
 
 const peer = { serial: "fixture-base", model: "T8010", deviceType: 0, adminUserId: "fixture-admin" } as MegaInventoryDevice;
