@@ -424,7 +424,7 @@ class GatewayClient:
 
     async def shared_lens_snapshot(self, serial: str, lens: str) -> bytes | None:
         """Read a retained pane without a fallback to a whole-camera image."""
-        if lens not in ("fixed", "movable"):
+        if lens not in ("fixed", "movable", "main"):
             raise GatewayClientError("Invalid shared lens")
         try:
             async with self._session.get(
@@ -442,8 +442,10 @@ class GatewayClient:
         native panes refuses that request, and the pane falls back to its
         compatible H.264 route. Every response must name the requested pane.
         """
-        if lens not in ("fixed", "movable"):
+        if lens not in ("fixed", "movable", "main"):
             raise GatewayClientError("Invalid shared lens")
+        if lens == "main" and native:
+            raise GatewayClientError("Main lens requires the checked crop")
         token_path = f"/api/cameras/{quote(serial, safe='')}/stream-token"
         if native:
             try:

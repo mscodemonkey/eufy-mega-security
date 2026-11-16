@@ -172,6 +172,7 @@ export class SharedLensViews {
     private readonly admitted: () => boolean,
     startupMilliseconds = 30_000,
     private readonly nowMilliseconds: () => number = () => performance.now(),
+    private readonly enabledLenses: readonly SharedLens[] = ["fixed", "movable"],
   ) {
     this.#caches = { fixed: cache(), movable: cache() };
     this.input = new LensSourceInput(codec => this.#start(codec));
@@ -194,6 +195,7 @@ export class SharedLensViews {
   /** Register one HTTP consumer, joining from its pane's own decoder start. */
   add(lens: SharedLens, response: VideoViewerResponse): void {
     if (this.#closed || response.destroyed || response.writableEnded) return;
+    if (!this.enabledLenses.includes(lens)) { response.destroy(); return; }
     this.#clients[lens].add(response); this.#pending.add(response);
     const leave = (): void => {
       this.#clients[lens].delete(response); this.#pending.delete(response);
@@ -239,8 +241,7 @@ export class SharedLensViews {
     if (!this.admitted()) { this.close("admission_changed"); return; }
     const cache = this.#caches[lens]; cache.push(chunk, "h264");
     const startup = cache.diagnostics.randomAccessPictures > 0 ? cache.startup : null;
-    if (startup && this.#caches.fixed.diagnostics.randomAccessPictures > 0
-      && this.#caches.movable.diagnostics.randomAccessPictures > 0) clearTimeout(this.#deadline);
+    if (startup && this.enabledLenses.every(selected => this.#caches[selected].diagnostics.randomAccessPictures > 0)) clearTimeout(this.#deadline);
     for (const response of [...this.#clients[lens]]) {
       const pending = this.#pending.has(response);
       if (pending && !startup) continue;

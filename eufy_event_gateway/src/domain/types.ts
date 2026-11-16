@@ -224,6 +224,9 @@ export interface CameraState {
   /** An admitted one-call NVR route may close an unused HA HLS worker before handoff. */
   readonly hlsIdleHandoverSupported?: boolean;
 
+  /** Exact E340/HB3 route can offer a disabled-by-default, geometry-checked main lens. */
+  readonly mainLensViewSupported?: boolean;
+
 
   /** Strictly validated camera-owned settings, with unknown values left absent. */
   readonly reportedSettings: CameraReportedSettings | null;
@@ -631,6 +634,9 @@ export interface CameraIdentity {
 
   /** An admitted one-call NVR route may close an unused HA HLS worker before handoff. */
   readonly hlsIdleHandoverSupported?: boolean;
+
+  /** Exact E340/HB3 route can offer a disabled-by-default, geometry-checked main lens. */
+  readonly mainLensViewSupported?: boolean;
 
 
   /** Optional read-only configuration projection from fresh device inventory. */

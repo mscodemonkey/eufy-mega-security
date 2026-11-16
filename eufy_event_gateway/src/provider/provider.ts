@@ -98,6 +98,9 @@ export interface CameraProvider {
   /** Exact owned T8E00/T8N00 Both source admission for derived video-only lens views. */
   nvrSharedLensViewsAdmitted?(serial: string): boolean;
 
+  /** Read current exact E340/HB3 derived-view admission without opening media. */
+  mainLensViewAdmitted?(serial: string): boolean;
+
   /** Open one lens on its own native NVR call for a pane, within the NVR's call budget. */
   openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
 

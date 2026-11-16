@@ -8,6 +8,8 @@ entity:
     manual_floodlight:
       name: Manuel projektør
   camera:
+    main_lens_experimental:
+      name: Primært objektiv (Eksperimentel)
     shared_fixed:
       name: Fast linse
     shared_movable:

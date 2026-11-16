@@ -13,6 +13,9 @@
       }
     },
     "camera": {
+      "main_lens_experimental": {
+        "name": "Main lens (Experimental)"
+      },
       "shared_fixed": {
         "name": "Fixed lens"
       },

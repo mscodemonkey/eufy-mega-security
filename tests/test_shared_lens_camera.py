@@ -38,7 +38,7 @@ class BaseCamera:
 def namespace():
     """Compile the real pane class, selectors and URL marking rules."""
     tree = ast.parse((ROOT / "camera.py").read_text())
-    names = {"_shared_lens_profile", "_view_for", "_with_view", "EufyGatewaySharedLensCamera"}
+    names = {"_shared_lens_profile", "_view_for", "_with_view", "EufyGatewaySharedLensCamera", "EufyGatewayMainLensCamera"}
     env = {"EufyGatewayCamera": BaseCamera, "CameraEntityFeature": lambda value: value,
            "GatewayClientError": GatewayError, "HomeAssistantError": GatewayError,
            "urlsplit": urlsplit, "urlunsplit": urlunsplit, "parse_qsl": parse_qsl, "urlencode": urlencode,
@@ -51,6 +51,37 @@ def namespace():
 
 class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
     """Keep one physical identity with distinct pane routes and no wrong-media fallback."""
+
+    async def test_e340_main_entity_is_optional_and_never_borrows_combined_media(self):
+        """The HomeKit-facing camera keeps a stable main-only image and URL identity."""
+        env = namespace()
+        row = {"model": "T8214", "mainLensViewSupported": True}
+        client = SimpleNamespace(shared_lens_stream_url=AsyncMock(return_value="signed-main"),
+                                 shared_lens_snapshot=AsyncMock(return_value=b"main"))
+
+        async def image(serial, kind, fetch):
+            return await fetch()
+
+        cache = SimpleNamespace(async_image=AsyncMock(side_effect=image))
+        coordinator = SimpleNamespace(cameras={"test": row}, last_update_success=True, client=client,
+                                      image_cache=cache, live_audio={"test": True})
+        entity = env["EufyGatewayMainLensCamera"](coordinator, "test")
+        self.assertEqual(entity._attr_unique_id, "test_main_lens_camera")
+        self.assertFalse(entity._attr_entity_registry_enabled_default)
+        self.assertFalse(entity._track_live_audio)
+        self.assertEqual(await entity._async_stream_url(), "signed-main")
+        self.assertEqual(await entity.async_camera_image(), b"main")
+        client.shared_lens_stream_url.assert_awaited_with("test", "main")
+        self.assertEqual(cache.async_image.call_args.args[:2], ("test", "snapshot-main"))
+        with self.assertRaisesRegex(GatewayError, "camera.record"):
+            await entity.async_record_clip("ignored", 15)
+        with self.assertRaises(GatewayError):
+            await entity.async_capture_snapshot("ignored")
+        row["mainLensViewSupported"] = False
+        self.assertFalse(entity.available)
+        with self.assertRaises(GatewayError):
+            await entity._async_stream_url()
+        client.shared_lens_stream_url.assert_awaited_once()
 
     async def test_entities_use_separate_ids_caches_and_video_only_urls(self):
         """Renewals always select the same pane regardless of the normal audio choice."""
@@ -149,7 +180,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         """A recorder sharing either pane retains the unmarked physical source."""
         env = namespace()
         camera = SimpleNamespace(camera={}, coordinator=SimpleNamespace(client=SimpleNamespace(live_view_handover_supported=True, hls_view_idle_supported=True), recording_holds=set()))
-        for media in ("live-fixed.h264", "live-movable.h264", "live-fixed-native.annexb", "live-movable-native.annexb"):
+        for media in ("live-main.h264", "live-fixed.h264", "live-movable.h264", "live-fixed-native.annexb", "live-movable-native.annexb"):
             url = f"http://gateway/api/cameras/test/{media}?access_token=token&view=old"
             self.assertEqual(dict(parse_qsl(urlsplit(env["_view_for"](camera, url)).query)), {"access_token": "token"})
         self.assertIn("view=new", env["_view_for"](camera, "http://gateway/live.h264?access_token=token"))

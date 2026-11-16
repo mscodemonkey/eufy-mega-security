@@ -21,6 +21,7 @@ import { GatewayState } from "../domain/gateway-state.js";
 import type { CameraState, GatewayEvent, SnapshotInfo, VideoCodec } from "../domain/types.js";
 import { SnapshotStore } from "../storage/snapshot-store.js";
 import { ViewerStartupTimeline, type ViewerStartupMilestones } from "./viewer-startup-timeline.js";
+import { spawnE340MainLensConverter } from "./e340-main-lens.js";
 import { SharedLensViews, spawnSharedLensConverter, type SharedLens, type SharedLensConverterFactory } from "./shared-lens-views.js";
 import { NativeLensView, type NvrLensCall } from "./native-lens-views.js";
 import { JpegParser } from "./jpeg-parser.js";
@@ -645,6 +646,7 @@ function annexBStarts(data: Buffer): Array<{ offset: number; payloadOffset: numb
 export class LiveStreamManager extends EventEmitter {
   readonly #sessions = new Map<string, Session>();
   readonly #lensViews = new Map<string, SharedLensViews>();
+  readonly #mainLensViews = new Map<string, SharedLensViews>();
   readonly #nativeLensViews = new Map<string, NativeLensView>();
   readonly #deliveredViews = new Set<string>();
   readonly #newViews = new Map<string, number>();
@@ -682,6 +684,28 @@ export class LiveStreamManager extends EventEmitter {
    */
   addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     return this.#addClient(serial, response, profile, performance.now(), view);
+  }
+
+  /** Share a checked E340 main crop while preserving the existing source and recordings. */
+  async addMainLensClient(serial: string, response: VideoViewerResponse): Promise<void> {
+    if (this.#closed || response.destroyed || response.writableEnded) return;
+    const admitted = (): boolean => this.state.hasCamera(serial) && this.state.getCamera(serial).mainLensViewSupported === true;
+    if (!admitted()) throw new Error("Main lens view is unavailable");
+    let view = this.#mainLensViews.get(serial);
+    const fresh = !view;
+    if (!view) {
+      const owned = new SharedLensViews(() => new VideoParameterSetCache(), spawnE340MainLensConverter,
+        terminateMediaProcess, reason => {
+          if (this.#mainLensViews.get(serial) === owned) this.#mainLensViews.delete(serial);
+          this.emit("shared-lens-closed", { model: "T8214", reason });
+        }, admitted, 30_000, this.nowMilliseconds, ["fixed"]);
+      view = owned; this.#mainLensViews.set(serial, owned);
+    }
+    view.add("fixed", response);
+    if (fresh) {
+      try { await this.addClient(serial, view.input, "native"); }
+      catch (error) { view.close(); throw error; }
+    }
   }
 
   /** Share both pane outputs through one unmarked native viewer, protecting its camera call. */
@@ -1339,6 +1363,7 @@ export class LiveStreamManager extends EventEmitter {
   /** Stop every source and release FFmpeg processes during shutdown. */
   async close(): Promise<void> {
     for (const pair of this.#lensViews.values()) pair.close();
+    for (const view of this.#mainLensViews.values()) view.close();
     for (const view of this.#nativeLensViews.values()) view.close("gateway_closed");
     if (this.#closed) return;
     this.#closed = true;
