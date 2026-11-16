@@ -603,6 +603,25 @@ export function supportsC31LiveTalkbackAccount(
     || device.memberType === 1 && !!device.memberUserId && authenticated(device.memberUserId));
 }
 
+/**
+ * Admit receive-only HB2 audio trials without changing a camera's audio setting.
+ * Exact child identities share the existing owned video session. The normal
+ * HA audio choice remains off, and trial entities start disabled. A matching
+ * clear AAC frame is still required by the transport before playback.
+ */
+export function supportsExperimentalHb2LiveAudio(
+  device: Pick<MegaInventoryDevice, "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  routeReady: boolean,
+): boolean {
+  return routeReady && route?.homeBaseAttached === true
+    && route.peer.model === "T8010" && route.peer.deviceType === 0
+    && ((device.model === "T8210" && device.deviceType === 7)
+      || (device.model === "T8140-Z" && device.deviceType === 14))
+    && Number.isSafeInteger(device.channel) && device.channel! >= 0 && device.channel! <= 31
+    && Boolean(device.adminUserId) && device.adminUserId === route.peer.adminUserId;
+}
+
 /** Admit checked live AAC on qualified routes, including the exact E210/HB3 trial. */
 export function supportsCameraLiveAudio(
   device: Pick<MegaInventoryDevice, "serial" | "model" | "deviceType" | "channel" | "adminUserId">,
@@ -610,6 +629,7 @@ export function supportsCameraLiveAudio(
   routeReady: boolean,
 ): boolean {
   if (!routeReady || !route || device.channel === null) return false;
+  if (supportsExperimentalHb2LiveAudio(device, route, routeReady)) return true;
   if (device.model === "T8442" && device.deviceType === 46) {
     return route.homeBaseAttached && route.peer.model === "T8030" && route.peer.deviceType === 18
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && device.channel <= 31
@@ -5847,6 +5867,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       hlsIdleHandoverSupported: nvrLive,
       ...(device.model === "T85V0" && device.deviceType === 203 || nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
         && route?.homeBaseAttached === false ? { startupSnapshotSupported: false } : {}),
+      liveAudioExperimental: supportsExperimentalHb2LiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))
         : supportsCameraLiveAudio(device, route, isPpcsStreamSupported(device, this.#devices, dskPeerSerials)),
       enabled: device.reads.enabled ?? null,

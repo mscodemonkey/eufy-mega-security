@@ -169,7 +169,8 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
  * Limit clear AAC to admitted models, their requested channel and media lifecycle.
  * Attached E30 routes may use assigned channels. Direct routes use zero, and
  * S220 additionally requires its exact reported device type.
- * T8210 requires type 7 and its observed HomeBase 3 parent.
+ * T8210 requires type 7 and its HomeBase 3 parent, or the receive-only HB2 trial.
+ * The HB2 trial also admits exact T8140-Z/type 14 through T8010/type 0.
  * T8113-Z requires type 8 and its observed HomeBase 2 or 3 parent.
  * The E210 trial requires exact type 46, an HB3/type-18 parent and channel 0..31.
  * Payload validation and protection checks remain with the owning session.
@@ -182,6 +183,9 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
       && stationModel === "T8030" && stationDeviceType === 18 && requestedChannel <= 31
       && (purpose === undefined || purpose === "media"))
     || (cameraModel === "T8210" && cameraDeviceType === 7 && homeBaseAttached && stationModel === "T8030")
+    || (homeBaseAttached && stationModel === "T8010" && stationDeviceType === 0 && requestedChannel <= 31
+      && ((cameraModel === "T8210" && cameraDeviceType === 7) || (cameraModel === "T8140-Z" && cameraDeviceType === 14))
+      && (purpose === undefined || purpose === "media"))
     || (cameraModel === "T8113-Z" && cameraDeviceType === 8 && homeBaseAttached
       && (stationModel === "T8010" || stationModel === "T8030")))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
