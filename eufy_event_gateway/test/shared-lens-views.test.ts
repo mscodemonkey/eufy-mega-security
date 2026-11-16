@@ -208,3 +208,23 @@ test("continuously unread decoder input retires the pair after two seconds", () 
   pair.input.write(Buffer.alloc(100)); now = 2001; pair.input.write(Buffer.alloc(100));
   assert.deepEqual(reasons, ["input_backlog"]); assert.equal(pair.input.destroyed, true);
 });
+
+
+test("a single enabled crop clears startup without a sibling and retires its source", context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const child = processFixture(), reasons: SharedLensCloseReason[] = [];
+  const view = new SharedLensViews(() => new VideoParameterSetCache(), () => child, () => {},
+    reason => reasons.push(reason), () => true, 30_000, () => 0, ["fixed"]);
+  const viewer = new Viewer(), refused = new Viewer();
+  view.add("fixed", viewer); view.add("movable", refused);
+  assert.equal(refused.destroyed, true);
+  view.input.writeHead(200, { "Content-Type": "video/h264" });
+  child.stdout!.emit("data", h264);
+  context.mock.timers.tick(30_001);
+  assert.equal(viewer.destroyed, false);
+  assert.ok(viewer.chunks.length > 0);
+  view.close();
+  assert.equal(view.input.destroyed, true);
+  assert.equal(viewer.destroyed, true);
+  assert.deepEqual(reasons, ["clients_closed"]);
+});

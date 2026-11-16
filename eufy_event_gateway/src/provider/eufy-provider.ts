@@ -2054,6 +2054,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       autoNightVisionEnabled: null, aiTrackingEnabled: values.tracking === null ? null : values.tracking === 1, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       hlsIdleHandoverSupported: this.#normalNvrLiveBinding(device, station),
+      mainLensViewSupported: false,
       doorbellSupported: isDoorbellDevice(device), audioRecordingControlSupported: false,
       careMonitor: false, preferenceRanges: {}, carePreferences: {},
       supportedDetections: ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound", "packageDelivered", "packageTaken", "packageStranded"],
@@ -2935,6 +2936,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #nvrProfile(device: MegaInventoryDevice): ReturnType<typeof nvrLiveProfile> {
     const station = this.#devices.get(device.parentSerial);
     return nvrLiveProfile(device.model, device.deviceType, station?.model, station?.deviceType);
+  }
+
+  /** Admit a geometry-checked E340 crop on its existing ready HB3 video route. */
+  mainLensViewAdmitted(serial: string): boolean {
+    const device = this.#devices.get(serial), station = device && this.#devices.get(device.parentSerial);
+    return !!device && device.model === "T8214" && device.deviceType === 94
+      && station?.model === "T8030" && station.deviceType === 18
+      && Boolean(device.adminUserId) && device.adminUserId === station.adminUserId
+      && isPpcsStreamSupported(device, this.#devices, new Set(this.#dskKeys.keys()));
   }
 
   /** Admit derived panes only on the existing owned T8E00/T8N00 Both source. */
@@ -5845,6 +5855,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: nvrLive || isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       hlsIdleHandoverSupported: nvrLive,
+      mainLensViewSupported: this.mainLensViewAdmitted(device.serial),
       ...(device.model === "T85V0" && device.deviceType === 203 || nvrLive || this.config.experimentalT8420Live && device.model === "T8420" && device.deviceType === 3
         && route?.homeBaseAttached === false ? { startupSnapshotSupported: false } : {}),
       liveAudioSupported: nvrLive ? nvrLiveAudioAdmitted(device, this.#devices.get(device.parentSerial))

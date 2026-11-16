@@ -96,6 +96,9 @@ export interface CameraProvider {
   /** Exact owned T8E00/T8N00 Both source admission for derived video-only lens views. */
   nvrSharedLensViewsAdmitted?(serial: string): boolean;
 
+  /** Read current exact E340/HB3 derived-view admission without opening media. */
+  mainLensViewAdmitted?(serial: string): boolean;
+
 
   /**
    * Inject media checks and guarded retirement while the manager retains source and lease ownership.

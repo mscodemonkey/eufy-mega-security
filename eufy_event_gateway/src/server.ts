@@ -11,6 +11,7 @@
 import { C31LiveRtc, C31LiveRtcError, c31LiveRtcOfferDiagnostic } from "./stream/c31-live-rtc.js";
 import { validQuickResponseId } from "./provider/quick-responses.js";
 import { SharedLensSnapshotCache, type SharedLens } from "./stream/shared-lens-views.js";
+import { e340MainLensSnapshot } from "./stream/e340-main-lens.js";
 import { rawHistoryStatus, rawHistoryFiles, rawHistoryPrivateFile } from "./diagnostics/raw-history.js";
 import { ParameterCheckError, parameterCheckStages, validateParameterSummary } from "./provider/reported-parameter-check.js";
 import { GeneralRtcPreparationError } from "./provider/provider.js";
@@ -86,6 +87,7 @@ export class GatewayServer {
   #sampleBundleTransport: (() => void) | null = null;
   readonly #recordings = new RecordingCache();
   readonly #lensSnapshotCache = new SharedLensSnapshotCache();
+  readonly #mainLensSnapshotCache = new SharedLensSnapshotCache(data => e340MainLensSnapshot(data));
   readonly #recordingIndexJobs = new Set<AbortController>();
   readonly #cloudCalendarJobs = new Set<AbortController>();
   readonly #nvrTrialJobs = new Set<AbortController>();
@@ -146,6 +148,7 @@ export class GatewayServer {
   /** Stop accepting requests, end open responses and wait for the HTTP server to close. */
   async close(): Promise<void> {
     this.#lensSnapshotCache.clear();
+    this.#mainLensSnapshotCache.clear();
     await this.#manualLightSources.close();
     await this.#liveRtc.closeAll();
     for (const controller of this.#cloudCalendarJobs) controller.abort();
@@ -460,7 +463,7 @@ export class GatewayServer {
         const streamAuthorized =
           request.method === "GET" &&
           segments[1] === "cameras" &&
-          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") &&
+          (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-main.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") &&
           segments.length === 4 &&
           (segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
             ? url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
@@ -1385,6 +1388,23 @@ export class GatewayServer {
           segments[3].startsWith("live-native.") ? "native" : "compatible", liveViewMark(url));
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
+        && ["live-main.h264", "snapshot-main"].includes(segments[3]!)) {
+        const serial = segments[2]!;
+        if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+        if (!this.provider.mainLensViewAdmitted?.(serial)) return json(response, 409, { error: "Main lens view is unavailable" });
+        if (segments[3] === "snapshot-main") {
+          const snapshot = await this.snapshots.read(serial);
+          const image = snapshot?.info.contentType === "image/jpeg" ? await this.#mainLensSnapshotCache.read(serial,
+            JSON.stringify([snapshot.info.revision, snapshot.info.capturedAt]), snapshot.data, "fixed") : null;
+          if (response.destroyed) return;
+          if (!this.provider.mainLensViewAdmitted?.(serial)) return json(response, 409, { error: "Main lens view is unavailable" });
+          if (!image) return this.#waitingImage(response);
+          response.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": image.length, "Cache-Control": "no-store" });
+          response.end(image); return;
+        }
+        return await this.streams.addMainLensClient(serial, response);
+      }
+      if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
         && ["live-fixed.h264", "live-movable.h264", "snapshot-fixed", "snapshot-movable"].includes(segments[3]!)) {
         const lens: SharedLens = segments[3]!.includes("fixed") ? "fixed" : "movable";
         if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
@@ -1821,14 +1841,14 @@ export class GatewayServer {
   }
 
   async #streamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
-    let profile: ViewerProfile | undefined, requestedAudio: "on" | "off" | undefined, lens: SharedLens | undefined;
+    let profile: ViewerProfile | undefined, requestedAudio: "on" | "off" | undefined, lens: SharedLens | "main" | undefined;
     try { ({ profile, audio: requestedAudio, lens } = await readStreamProfile(request)); }
     catch { return json(response, 400, { error: "Invalid stream profile request" }); }
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "Livestream control is unavailable for this camera" });
     }
-    if (lens && !this.provider.nvrSharedLensViewsAdmitted?.(serial)) return json(response, 409, { error: "Shared lens views are unavailable" });
+    if (lens && !(lens === "main" ? this.provider.mainLensViewAdmitted?.(serial) : this.provider.nvrSharedLensViewsAdmitted?.(serial))) return json(response, 409, { error: "Shared lens views are unavailable" });
     const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
     const token = this.config.apiToken
       ? profile === "native" ? createNativeStreamToken(serial, expiresAt, this.config.apiToken)
@@ -2047,7 +2067,7 @@ async function readJson(request: IncomingMessage, maximumBytes = 16_384): Promis
 interface StreamRequest {
   readonly profile: ViewerProfile | undefined;
   readonly audio: "on" | "off" | undefined;
-  readonly lens?: SharedLens;
+  readonly lens?: SharedLens | "main";
 }
 
 async function readStreamProfile(request: IncomingMessage): Promise<StreamRequest> {
@@ -2088,7 +2108,7 @@ async function readStreamProfile(request: IncomingMessage): Promise<StreamReques
   if (profile !== undefined && profile !== "native" && profile !== "compatible") throw new SyntaxError("Invalid stream profile");
   if (audio !== undefined && audio !== "on" && audio !== "off") throw new SyntaxError("Invalid stream profile");
   const lens = fields.get("lens");
-  if (lens !== undefined && lens !== "fixed" && lens !== "movable") throw new SyntaxError("Invalid lens");
+  if (lens !== undefined && lens !== "fixed" && lens !== "movable" && lens !== "main") throw new SyntaxError("Invalid lens");
   if (lens && (profile === "native" || audio === "on")) throw new SyntaxError("Lens views are compatible video only");
   return { profile, audio, ...(lens ? { lens } : {}) };
 }

@@ -424,7 +424,7 @@ class GatewayClient:
 
     async def shared_lens_snapshot(self, serial: str, lens: str) -> bytes | None:
         """Read a retained pane without a fallback to a whole-camera image."""
-        if lens not in ("fixed", "movable"):
+        if lens not in ("fixed", "movable", "main"):
             raise GatewayClientError("Invalid shared lens")
         try:
             async with self._session.get(
@@ -437,7 +437,7 @@ class GatewayClient:
 
     async def shared_lens_stream_url(self, serial: str, lens: str) -> str:
         """Require an explicit pane response, never retrying against a normal stream."""
-        if lens not in ("fixed", "movable"):
+        if lens not in ("fixed", "movable", "main"):
             raise GatewayClientError("Invalid shared lens")
         payload = await self._json(f"/api/cameras/{quote(serial, safe='')}/stream-token", method="POST",
                                    payload={"profile": "compatible", "audio": "off", "lens": lens})
