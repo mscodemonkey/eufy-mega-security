@@ -62,6 +62,12 @@
       "camera_ai_tracking_off": {
         "name": "Deaktivér AI-sporing"
       },
+      "camera_ai_tracking_on_experimental": {
+        "name": "Aktivér AI-sporing (eksperimentel)"
+      },
+      "camera_ai_tracking_off_experimental": {
+        "name": "Deaktivér AI-sporing (eksperimentel)"
+      },
       "camera_auto_cruise_on": {
         "name": "Start automatisk patruljering"
       },
@@ -170,8 +176,14 @@
       "camera_notification_interval": {
         "name": "Notifikationsinterval"
       },
+      "eufy_station_alarm_volume_experimental": {
+        "name": "Alarm lydstyrke (eksperimentel)"
+      },
       "eufy_station_alarm_volume": {
         "name": "Alarm lydstyrke"
+      },
+      "eufy_station_prompt_volume_experimental": {
+        "name": "Instruks lydstyrke (eksperimentel)"
       },
       "eufy_station_prompt_volume": {
         "name": "Instruks lydstyrke"
@@ -412,6 +424,9 @@
       },
       "camera_audio_recording": {
         "name": "Lydoptagelse"
+      },
+      "camera_audio_recording_experimental": {
+        "name": "Lydoptagelse (eksperimentel)"
       },
       "camera_live_audio": {
         "name": "Live lyd"

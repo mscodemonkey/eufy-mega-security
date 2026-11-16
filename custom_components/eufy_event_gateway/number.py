@@ -92,6 +92,7 @@ class EufyStationVolume(EufyStationEntity, NumberEntity):
         self._attr_unique_id = f"{serial}_{kind}_volume"
         if self.station.get("volumeControlsExperimental") is True:
             self._attr_translation_key += "_experimental"
+            self._attr_entity_registry_enabled_default = False
         self._setter: Callable[[str, int], Awaitable[dict[str, Any]]] = (
             coordinator.client.set_station_alarm_volume
             if kind == "alarm"
