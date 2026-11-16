@@ -293,6 +293,9 @@ for (const mode of ["administrator", "super-admin", "guest", "foreign-member", "
       } else {
         await assert.rejects(provider.setCameraSetting("camera", { setting: "motionSensitivity", value: 5 }));
         assert.equal(writes, mode === "revoked-after-send" ? 1 : 0);
+        if (["revoked", "parent-revoked", "revoked-after-send"].includes(mode)) {
+          assert.equal(state.getCamera("camera").motionSensitivityControlSupported, false);
+        }
         if (mode === "revoked-after-send") assert.equal(state.getCamera("camera").reportedSettings?.motionSensitivityStep, null);
       }
     } finally { await provider.close(); await rm(directory, { recursive: true, force: true }); assert.equal(network.mock.callCount(), 0); }

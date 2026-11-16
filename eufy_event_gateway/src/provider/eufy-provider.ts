@@ -3705,7 +3705,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } catch (error) {
       if (!dispatched && generation === this.#startupGeneration) {
         const current = this.#devices.get(serial);
-        this.#events?.camera(profile.form === "attached-quality" && current ? this.#cameraIdentity(current) : originalPublic);
+        this.#events?.camera((profile.form === "attached-quality" || administratorSensitivity) && current
+          ? this.#cameraIdentity(current) : originalPublic);
       }
       throw error;
     } finally {
