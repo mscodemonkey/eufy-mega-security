@@ -453,9 +453,18 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                         observer.close()
 
                     def may_idle() -> bool:
-                        """Only an ordinary, unrecorded and non-preloaded output can retire early."""
+                        """Retire healthy unused views, leaving recovery to HA's normal timeout.
+
+                        A failed worker waits before reopening and marks itself
+                        available before it has new segments. Quiet HLS requests
+                        during that interval do not mean the viewer has left.
+                        Once an error occurs, keep HA's ordinary idle timeout for
+                        the rest of this stream's lifetime.
+                        """
                         outputs = stream.outputs()
-                        return (not stream.dynamic_stream_settings.preload_stream
+                        diagnostics = stream.get_diagnostics()
+                        return (not diagnostics.get("worker_error", 0)
+                                and not stream.dynamic_stream_settings.preload_stream
                                 and not self.coordinator.recording_holds
                                 and set(outputs) == {"hls"} and outputs["hls"] is provider
                                 and (_view_of(stream.source) or "").startswith("hls1_"))
