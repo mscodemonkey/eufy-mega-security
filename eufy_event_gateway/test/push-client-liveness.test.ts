@@ -328,12 +328,14 @@ test("receive checkpoints distinguish partial bytes, heartbeat replies and dupli
   context.mock.timers.tick(20);
   const partial = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
   assert.match(partial, /chunks=2 bytes=\d+ frames=1 data_stanzas=0 heartbeat_frames=0 decode_failures=0/);
+  assert.match(partial, /framing_state=body buffered_bytes=0 pending_body_bytes=[1-9][0-9]*/);
   socket.emit("data", frame.subarray(2));
   socket.emit("data", frame);
   socket.emit("data", heartbeatAck());
   context.mock.timers.tick(20);
   const complete = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
   assert.match(complete, /chunks=5 bytes=\d+ frames=4 data_stanzas=2 heartbeat_frames=1 decode_failures=0/);
+  assert.match(complete, /framing_state=idle buffered_bytes=0 pending_body_bytes=0/);
   assert.equal(messages, 1, "transport observations precede unchanged duplicate suppression");
   socket.destroy();
   await Promise.resolve();
@@ -344,5 +346,6 @@ test("receive checkpoints distinguish partial bytes, heartbeat replies and dupli
   context.mock.timers.tick(20);
   const fresh = logs.filter(line => line.includes("event=mcs_receive_status")).at(-1)!;
   assert.match(fresh, /chunks=1 bytes=\d+ frames=1 data_stanzas=0 heartbeat_frames=0 decode_failures=0/);
+  assert.match(fresh, /framing_state=idle buffered_bytes=0 pending_body_bytes=0/);
   assert.doesNotMatch(logs.filter(line => line.includes("event=mcs_receive_status")).join(""), /PRIVATE_PROGRESS_ID|synthetic-sender|synthetic-app|1234567890|987654321/);
 });
