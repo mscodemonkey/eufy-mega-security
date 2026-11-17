@@ -64,6 +64,7 @@ import type { MegaInventory } from "../mega/types.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { MegaClient } from "../mega/client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
+import { EventImageKeyUnavailableError } from "../mega/event-image-key-error.js";
 import { parseV8EventImage, decodeV8EventImage } from "../mega/v8-image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
 import { CloudRecordingError } from "../stream/cloud-recordings.js";
@@ -7792,7 +7793,8 @@ export async function downloadPushSnapshot(
       }
       const owner = devices.get(event.stationSerial)?.adminUserId;
       if (!owner || !client.getEventImageKey) {
-        throw new Error("event image decode failed: format=v8 result=key_unavailable");
+        const reason = !owner ? "owner_missing" : "lookup_unavailable";
+        throw new Error(`event image decode failed: format=v8 result=key_unavailable key_reason=${reason}`);
       }
       let privateKey: Buffer;
       try {
@@ -7801,7 +7803,8 @@ export async function downloadPushSnapshot(
         const result = error instanceof Error && error.message === "Event picture key unavailable"
           ? "key_unavailable" : error instanceof Error && error.message === "Event picture key session changed"
             ? "owner_changed" : "key_lookup_failed";
-        throw new Error(`event image decode failed: format=v8 result=${result}`);
+        const reason = error instanceof EventImageKeyUnavailableError ? ` key_reason=${error.reason}` : "";
+        throw new Error(`event image decode failed: format=v8 result=${result}${reason}`);
       }
       try {
         if (devices.get(event.stationSerial)?.adminUserId !== owner) {

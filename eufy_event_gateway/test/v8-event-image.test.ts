@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCipheriv, createECDH, createHmac } from "node:crypto";
 import { encode, decode } from "jpeg-js";
+import { EventImageKeyUnavailableError } from "../src/mega/event-image-key-error.js";
 import { parseV8EventImage, decodeV8EventImage } from "../src/mega/v8-image.js";
 import { downloadPushSnapshot } from "../src/provider/eufy-provider.js";
 import { EventImageCapture } from "../src/diagnostics/event-image-capture.js";
@@ -148,4 +149,23 @@ test("V8 refuses a client exposing only live cipher lookup", async () => {
     { pictureUrl: "https://example.invalid/private", stationSerial: station },
     new Map([[station, { p2pDid: null, adminUserId: "synthetic-owner" }]])), /key_unavailable/);
   assert.equal(calls, 0);
+});
+
+
+test("V8 reports only a fixed key-refusal reason and never a server response", async () => {
+  for (const reason of ["owner_mismatch", "key_missing", "key_material_unavailable"] as const) {
+    const client = {
+      download: async () => fixture(),
+      getEventImageKey: async () => { throw new EventImageKeyUnavailableError(reason); },
+    };
+    await assert.rejects(downloadPushSnapshot(client,
+      { pictureUrl: "https://example.invalid/private", stationSerial: station },
+      new Map([[station, { p2pDid: null, adminUserId: "synthetic-owner" }]])),
+      new RegExp(`^Error: event image decode failed: format=v8 result=key_unavailable key_reason=${reason}$`));
+  }
+  const client = { download: async () => fixture(), getEventImageKey: async () => { throw new Error("private-server-response"); } };
+  await assert.rejects(downloadPushSnapshot(client,
+    { pictureUrl: "https://example.invalid/private", stationSerial: station },
+    new Map([[station, { p2pDid: null, adminUserId: "synthetic-owner" }]])),
+    /^Error: event image decode failed: format=v8 result=key_lookup_failed$/);
 });

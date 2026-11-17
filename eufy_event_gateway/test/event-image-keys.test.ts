@@ -8,6 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { EventImageKeyUnavailableError } from "../src/mega/event-image-key-error.js";
 import { MegaClient } from "../src/mega/client.js";
 import { credentialVerifier, decryptEnvelope, sharedAesKey } from "../src/mega/crypto.js";
 
@@ -116,5 +117,36 @@ test("burst picture reads are serialized and return separate caller-owned buffer
     keys[0]!.fill(0);
     assert.deepEqual(keys[1], Buffer.alloc(32, 1));
     for (const key of keys) key.fill(0);
+  });
+});
+
+
+test("picture-key refusal distinguishes admission and metadata without retaining account contents", async () => {
+  await fixture(async (client, state) => {
+    const row = { pincode_id: 10, private_key: "01".repeat(32) };
+    const cases = [
+      { owner: "", id: 10, data: {}, reason: "owner_missing", network: false },
+      { owner: "another-owner", id: 10, data: {}, reason: "owner_mismatch", network: false },
+      { owner: "synthetic-owner", id: 1, data: {}, reason: "invalid_selector", network: false },
+      { data: {}, reason: "key_list_missing" },
+      { data: { simple_security_keys: "private-response" }, reason: "key_list_invalid" },
+      { data: { simple_security_keys: Array(257).fill(row) }, reason: "key_list_invalid" },
+      { data: { simple_security_keys: [] }, reason: "key_missing" },
+      { data: { simple_security_keys: [row, row] }, reason: "key_ambiguous" },
+      { data: { simple_security_keys: [{ ...row, private_key: "protected-private-value" }] }, reason: "key_material_unavailable" },
+    ];
+    for (const sample of cases) {
+      state.data = sample.data;
+      const before = state.calls.length;
+      await assert.rejects(client.getEventImageKey(sample.id ?? 10, sample.owner ?? "synthetic-owner"), error => {
+        assert.ok(error instanceof EventImageKeyUnavailableError);
+        assert.equal(error.reason, sample.reason);
+        assert.equal(error.message, "Event picture key unavailable");
+        assert.deepEqual(Object.keys(error), ["reason"]);
+        assert.ok(!JSON.stringify(error).includes("private"));
+        return true;
+      });
+      assert.equal(state.calls.length - before, sample.network === false ? 0 : 1);
+    }
   });
 });

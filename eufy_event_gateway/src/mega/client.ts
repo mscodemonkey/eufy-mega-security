@@ -10,6 +10,7 @@
  * SSE, or the PPCS packet stream. Keeping those concerns out of this class is
  * what makes the Mega layer reusable by a probe or another application.
  */
+import { EventImageKeyUnavailableError } from "./event-image-key-error.js";
 import { observeRawFetch } from "../diagnostics/raw-network.js";
 import { ParameterCheckError, projectReportedParameters, type ParameterCheckModel, type ParameterCheckSummary } from "../provider/reported-parameter-check.js";
 import { MEDIA_HOST, MEDIA_OBJECT_HOST, MediaHttpError, mediaRequestDiagnostic } from "./media-request-diagnostic.js";
@@ -869,10 +870,12 @@ export class MegaClient {
    * persists keys; response strings remain subject to JavaScript heap cleanup.
    */
   async getEventImageKey(keyId: number, ownerId: string): Promise<Buffer> {
-    if (!this.isAuthenticated || !Number.isInteger(keyId) || keyId < 2 || keyId > 255 ||
-      !ownerId || ownerId !== this.#session!.userId) {
-      throw new Error("Event picture key unavailable");
+    if (!this.isAuthenticated) throw new EventImageKeyUnavailableError("unauthenticated");
+    if (!Number.isInteger(keyId) || keyId < 2 || keyId > 255) {
+      throw new EventImageKeyUnavailableError("invalid_selector");
     }
+    if (!ownerId) throw new EventImageKeyUnavailableError("owner_missing");
+    if (ownerId !== this.#session!.userId) throw new EventImageKeyUnavailableError("owner_mismatch");
     const token = this.#session!.authToken;
     const signal = this.#requestLifetime.signal;
     let decoded: unknown;
@@ -890,14 +893,19 @@ export class MegaClient {
       this.#session.userId !== ownerId) {
       throw new Error("Event picture key session changed");
     }
-    if (!isRecord(decoded) || !Array.isArray(decoded.simple_security_keys) || decoded.simple_security_keys.length > 256) {
-      throw new Error("Event picture key unavailable");
+    if (!isRecord(decoded) || !Object.hasOwn(decoded, "simple_security_keys")) {
+      throw new EventImageKeyUnavailableError("key_list_missing");
+    }
+    if (!Array.isArray(decoded.simple_security_keys) || decoded.simple_security_keys.length > 256) {
+      throw new EventImageKeyUnavailableError("key_list_invalid");
     }
     const matches = decoded.simple_security_keys.filter((entry: unknown) =>
       isRecord(entry) && Number.isInteger(entry.pincode_id) && entry.pincode_id === keyId);
-    const value: unknown = matches.length === 1 ? matches[0].private_key : undefined;
+    if (!matches.length) throw new EventImageKeyUnavailableError("key_missing");
+    if (matches.length !== 1) throw new EventImageKeyUnavailableError("key_ambiguous");
+    const value: unknown = matches[0].private_key;
     if (typeof value !== "string" || !/^[a-fA-F0-9]{64}$/.test(value)) {
-      throw new Error("Event picture key unavailable");
+      throw new EventImageKeyUnavailableError("key_material_unavailable");
     }
     return Buffer.from(value, "hex");
   }
