@@ -1534,6 +1534,9 @@ interface PendingControl {
 
   /** Exclude clear replies when the exact trial uses the encrypted legacy envelope. */
   readonly encryptedOnly?: boolean;
+
+  /** Permit only the observed zero-padded clear result for the exact E330 light write. */
+  readonly e330LightResult?: boolean;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -2460,7 +2463,7 @@ export class FirstPartyPpcsSession {
     const frame = buildModelControlTrialPayload(request, route, this.#options.accountId,
       commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key, this.#level2Seq++, Date.now());
     const acknowledgement = this.#waitForControlResult(frame.command, this.#options.channel, CONTROL_TIMEOUT_MILLISECONDS,
-      request.action === "manualLight" && !legacyLight, legacyLight, legacyLight);
+      request.action === "manualLight" && !legacyLight, legacyLight && !e330Light, legacyLight, e330Light);
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
@@ -3656,7 +3659,11 @@ export class FirstPartyPpcsSession {
         const attachedMotion = command === 1011 && this.#options.cameraModel === "T8171"
           && this.#options.cameraDeviceType === 88 && this.#options.homeBaseAttached === true
           && this.#options.stationModel === "T8030";
-        const result = attachedMotion
+        const e330Light = this.#pendingControl.e330LightResult === true && command === 1400;
+        const result = e330Light && signCode === 0
+          ? frameChannel === this.#pendingControl.strictChannel && header[15] === 0
+            && payload.length === 132 && payload.subarray(4).every(value => value === 0) ? payload.readInt32LE(0) : null
+          : attachedMotion
           ? frameChannel === this.#pendingControl.strictChannel && signCode === 0 && header[15] === 0
             && payload.length === 132 ? payload.readInt32LE(0) : null
           : command === 1706
@@ -4113,7 +4120,7 @@ export class FirstPartyPpcsSession {
    * potentially non-idempotent operation.
    */
   #waitForControlResult(command: number, strictChannel?: number, timeoutMilliseconds = CONTROL_TIMEOUT_MILLISECONDS,
-    authenticatedOnly = false, encryptedOnly = false, observeReceipt = false): Promise<void> {
+    authenticatedOnly = false, encryptedOnly = false, observeReceipt = false, e330LightResult = false): Promise<void> {
     if (this.#alarmRead) throw new Error("Alarm state read owns this session");
     if (this.#pendingControl || this.#pending2cLightState) return Promise.reject(new Error("Camera already has a control command in flight"));
     return new Promise<void>((resolve, reject) => {
@@ -4123,7 +4130,7 @@ export class FirstPartyPpcsSession {
       }, timeoutMilliseconds);
       const trace = observeReceipt && strictChannel !== undefined ? new PpcsControlReceiptTrace(command, strictChannel) : undefined;
       if (trace) this.#lastControlReceipt = trace;
-      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, encryptedOnly, ...(trace ? { trace } : {}),
+      this.#pendingControl = { command, resolve, reject, timer, authenticatedOnly, encryptedOnly, e330LightResult, ...(trace ? { trace } : {}),
         ...(strictChannel === undefined ? {} : { strictChannel }) };
     });
   }
