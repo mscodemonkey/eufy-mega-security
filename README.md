@@ -507,6 +507,14 @@ docker build -t eufy-mega-security:test .
 Private diagnostic bundles for all discovered device families are described in
 [the private diagnostics guide](docs/PRIVATE_DIAGNOSTICS.md). Media requires explicit consent and private sharing.
 
+### Experimental HomeBase 2 startup recovery
+
+The app option `experimental_hb2_startup_recovery` is off by default. It tries
+one early replacement of an acknowledged but silent T8140-Z or T8210 start
+through T8010, using the owning account. It preserves the startup deadline and
+skips another local view or recording. Hardware behaviour is unconfirmed.
+See [the app guide](eufy_event_gateway/DOCS.md#early-homebase-2-startup-recovery-experimental).
+
 ### Experimental smooth S340 live view
 
 The app option `experimental_s340_smooth_live` is off by default. It adds six

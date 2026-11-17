@@ -1,4 +1,7 @@
 configuration:
+  experimental_hb2_startup_recovery:
+    name: Early HB2 camera startup recovery (experimental)
+    description: Try one early recovery when a T8140-Z or T8210 camera through HomeBase 2 acknowledges a start but sends no video or audio. Skips other local views and recordings. Off by default. Hardware behaviour is unconfirmed.
   homebase_local_addresses:
     name: HomeBase local addresses
     description: Optional serial and private IPv4 address pairs for HomeBase 2, HomeBase 3 or HomeBase S1. Use a reachable routed address when discovery cannot cross VLANs. Existing device authentication still applies. Leave empty for automatic discovery.

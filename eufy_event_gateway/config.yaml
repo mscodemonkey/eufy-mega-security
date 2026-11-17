@@ -46,6 +46,7 @@ options:
   experimental_fixed_h265_resolution: false
   experimental_low_cpu_h265_conversion: false
   experimental_s340_smooth_live: false
+  experimental_hb2_startup_recovery: false
 schema:
   username: str
   password: password
@@ -73,3 +74,4 @@ schema:
   experimental_fixed_h265_resolution: bool?
   experimental_low_cpu_h265_conversion: bool?
   experimental_s340_smooth_live: bool?
+  experimental_hb2_startup_recovery: bool?

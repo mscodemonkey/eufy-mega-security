@@ -39,6 +39,9 @@ export interface GatewayConfig {
   /** Default-off official-model control trials, requiring bearer authentication. */
   readonly experimentalModelControls: boolean;
 
+  /** Default-off single recovery of an acknowledged silent HB2 child start. */
+  readonly experimentalHb2StartupRecovery: boolean;
+
   /** Default-off E30 MQTT state and controls, requiring bearer authentication. */
   readonly experimentalE30Locks: boolean;
 
@@ -106,6 +109,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
   if (experimentalHomeBaseEventImages && !apiToken) throw new Error("Experimental HomeBase picture recovery requires EUFY_GATEWAY_API_TOKEN");
   const captureFailedEventImages = captureBoolean(environment.EUFY_GATEWAY_CAPTURE_FAILED_EVENT_IMAGES);
   const experimentalModelControls = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS, "EUFY_GATEWAY_EXPERIMENTAL_MODEL_CONTROLS");
+  const experimentalHb2StartupRecovery = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY, "EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY");
+  if (experimentalHb2StartupRecovery && !apiToken) throw new Error("Experimental HB2 startup recovery requires EUFY_GATEWAY_API_TOKEN");
   const experimentalE30Locks = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS, "EUFY_GATEWAY_EXPERIMENTAL_E30_LOCKS");
   if (experimentalE30Locks && !apiToken) throw new Error("Experimental E30 locks require EUFY_GATEWAY_API_TOKEN");
   const experimentalDoorbellRtc = captureBoolean(environment.EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC, "EUFY_GATEWAY_EXPERIMENTAL_DOORBELL_RTC");
@@ -162,6 +167,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Gatewa
     experimentalHomeBaseEventImages,
     experimentalHomeBaseEventNames,
     experimentalModelControls,
+    experimentalHb2StartupRecovery,
     experimentalE30Locks,
     experimentalNvrLive,
     experimentalT8420Live,

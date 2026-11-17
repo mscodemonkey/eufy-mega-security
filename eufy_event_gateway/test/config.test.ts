@@ -166,3 +166,11 @@ test("the separate T8420 live trial defaults off and requires explicit authentic
   assert.equal(value.experimentalModelControls, false);
   assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_T8420_LIVE: "yes" }), /must be true or false/);
 });
+
+
+test("HB2 startup recovery is a separate authenticated default-off opt-in", () => {
+  assert.equal(loadConfig({}).experimentalHb2StartupRecovery, false);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY: "true" }), /requires EUFY_GATEWAY_API_TOKEN/);
+  assert.equal(loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY: "true", EUFY_GATEWAY_API_TOKEN: "x".repeat(32) }).experimentalHb2StartupRecovery, true);
+  assert.throws(() => loadConfig({ EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY: "yes" }), /must be true or false/);
+});

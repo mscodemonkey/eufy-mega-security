@@ -34,6 +34,7 @@ export EUFY_GATEWAY_EXPERIMENTAL_GENERAL_RTC="$(jq -r '.experimental_general_rtc
 export EUFY_GATEWAY_EXPERIMENTAL_C31_LIVE_TALKBACK="$(jq -r '.experimental_c31_live_talkback // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_CLOUD_RECORDINGS="$(jq -r '.experimental_cloud_recordings // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_NVR_REGION="$(jq -r '.experimental_nvr_region // "auto"' "$options")"
+export EUFY_GATEWAY_EXPERIMENTAL_HB2_STARTUP_RECOVERY="$(jq -r '.experimental_hb2_startup_recovery // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_S340_SMOOTH_LIVE="$(jq -r '.experimental_s340_smooth_live // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_FIXED_H265_RESOLUTION="$(jq -r '.experimental_fixed_h265_resolution // false' "$options")"
 export EUFY_GATEWAY_EXPERIMENTAL_LOW_CPU_H265_CONVERSION="$(jq -r '.experimental_low_cpu_h265_conversion // false' "$options")"
