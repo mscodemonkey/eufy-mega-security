@@ -386,7 +386,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         # A native pane has its own call, which the main camera's stream state does not describe.
         if (cached is not None and not cached.dynamic_stream_settings.preload_stream
                 and "recorder" not in cached.outputs() and not getattr(self, "_own_nvr_call", False)
-                and (self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}
+                and (self.camera.get("hlsIdleHandoverSupported") is True
+                     and self.camera.get("stream", {}).get("state") in {"idle", "stopping", "error"}
                      or getattr(getattr(self, "_hls_activity", None), "expiring", False))):
             await cached.stop()
             self.stream = cached = None

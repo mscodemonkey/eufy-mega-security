@@ -349,3 +349,37 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    async def test_homebase_reconnect_keeps_existing_playlist(self) -> None:
+        """A transient upstream state must not retire an active HA HLS output."""
+        for model in ("T8600", "T8223"):
+            for state in ("idle", "stopping", "error"):
+                with self.subTest(model=model, state=state):
+                    self.camera.camera = {"model": model, "stream": {"state": state}}
+                    self.stream.stop = AsyncMock()
+                    original_output = self.stream.outputs()["hls"]
+                    result = await self.camera.async_create_stream()
+                    self.assertIs(result, self.stream)
+                    self.assertIs(result.outputs()["hls"], original_output)
+                    self.stream.stop.assert_not_awaited()
+                    self.stream.update_source.assert_not_called()
+
+    async def test_explicit_nvr_handoff_still_retires_the_old_stream(self) -> None:
+        """Only a declared shared NVR route can lose its cached call this way."""
+        self.camera.camera = {"hlsIdleHandoverSupported": True, "stream": {"state": "idle"}}
+        self.stream.stop = AsyncMock()
+        await self.camera.async_create_stream()
+        self.stream.stop.assert_awaited_once()
+
+    async def test_nvr_preload_recording_and_native_panes_keep_their_owner(self) -> None:
+        """An NVR handoff declaration cannot override another media owner."""
+        for owner in ("preload", "recorder", "pane"):
+            with self.subTest(owner=owner):
+                self.camera.camera = {"hlsIdleHandoverSupported": True, "stream": {"state": "idle"}}
+                self.camera.stream = self.stream
+                self.stream.stop = AsyncMock()
+                self.stream.dynamic_stream_settings.preload_stream = owner == "preload"
+                self.stream.outputs.return_value = {"hls": object(), **({"recorder": object()} if owner == "recorder" else {})}
+                self.camera._own_nvr_call = owner == "pane"
+                await self.camera.async_create_stream()
+                self.stream.stop.assert_not_awaited()
