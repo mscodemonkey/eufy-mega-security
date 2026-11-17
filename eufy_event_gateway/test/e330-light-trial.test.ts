@@ -48,8 +48,8 @@ function deliver(socket: Socket, payload: Buffer, sign: number, sequence: number
   socket.emit("message", Buffer.concat([header, frame, payload]), { address: "127.0.0.1", port: 12345 });
 }
 
-for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled"] as const) {
-  test(`E330 sends once without a level-two key and correlates its encrypted receipt: ${mode}`, async context => {
+for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled", "padded-on", "padded-off", "padded-negative"] as const) {
+  test(`E330 sends once without a level-two key and correlates its supported receipt: ${mode}`, async context => {
     let socket!: Socket;
     const sent: Buffer[] = [];
     context.mock.method(Socket.prototype, "bind", function(this: Socket) {
@@ -65,9 +65,9 @@ for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled"]
     await session.start();
     context.mock.timers.enable({ apis: ["setTimeout"] });
     let settled = false, dispatches = 0;
-    const operation = session.writeModelControlTrial({ action: "manualLight", enabled: mode !== "off" }, route,
+    const operation = session.writeModelControlTrial({ action: "manualLight", enabled: !mode.endsWith("off") }, route,
       () => { if (mode === "cancelled") throw Error("route retired"); }, () => { dispatches++; });
-    const result = mode === "on" || mode === "off" ? operation.then(() => { settled = true; }) : assert.rejects(operation);
+    const result = ["on", "off", "padded-on", "padded-off"].includes(mode) ? operation.then(() => { settled = true; }) : assert.rejects(operation);
     try {
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(dispatches, mode === "cancelled" ? 0 : 1);
@@ -91,12 +91,26 @@ for (const mode of ["on", "off", "negative", "timeout", "unusable", "cancelled"]
           deliver(socket, Buffer.from("{}"), 1, 4, 3, 1351, false);
           context.mock.timers.tick(10_000);
         }
-        else deliver(socket, encrypted, 1, 4);
+        else if (mode.startsWith("padded-")) {
+          const padded = Buffer.alloc(132); padded.writeInt32LE(mode === "padded-negative" ? -104 : 0);
+          deliver(socket, padded, 0, 4, 4);
+          deliver(socket, padded, 0, 5, 3, 1403);
+          deliver(socket, padded, 0, 6, 3, 1400, false);
+          const malformed = Buffer.from(padded); malformed[131] = 1;
+          deliver(socket, malformed, 0, 7);
+          await new Promise(resolve => setImmediate(resolve));
+          assert.equal(settled, false);
+          deliver(socket, padded, 0, 8);
+        } else deliver(socket, encrypted, 1, 4);
       }
       await result;
       const evidence = session.controlReceiptEvidence();
       if (mode === "cancelled") assert.equal(evidence, undefined);
-      else assert.deepEqual(evidence, mode === "timeout"
+      else if (mode.startsWith("padded-")) {
+        assert.equal(evidence?.decodedFrames, 1);
+        assert.equal(evidence?.matchingFrames, 3);
+        assert.equal(evidence?.clearResultShape, "mixed");
+      } else assert.deepEqual(evidence, mode === "timeout"
         ? { notificationFrames: 0, selectedNotifications: 0, resultFrames: 0, selectedFrames: 0, matchingFrames: 0, decodedFrames: 0 }
         : { notificationFrames: mode === "unusable" ? 1 : 0, selectedNotifications: mode === "unusable" ? 1 : 0,
           resultFrames: mode === "unusable" ? 3 : 4, selectedFrames: mode === "unusable" ? 2 : 3,
