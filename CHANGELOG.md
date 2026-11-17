@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.271
+
+- Add a fixed, privacy-safe reason to unavailable event-picture key diagnostics, so a normal failure can distinguish account admission from missing, ambiguous or protected metadata. This does not change key access or establish a picture-delivery fix.
+- Record reporter-confirmed receive audio for one T8210 doorbell and three T8140-Z cameras through HomeBase 2 on v0.1.270. Intermittent video startup remains open and microphone talkback is separate.
+- Clarify that supervised reversible C35 tests can use existing equipment, with the Eufy app available for restoration.
+
 ## 0.1.270
 
 - Require explicit entity opt-in for new experimental HomeBase volume and attached SoloCam E30 controls, preserving existing user choices.
