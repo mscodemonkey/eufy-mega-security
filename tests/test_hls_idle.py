@@ -380,6 +380,18 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
                 await self.camera.async_create_stream()
                 self.stream.stop.assert_not_awaited()
 
+    async def test_unavailable_homebase_worker_renews_without_restarting_output(self) -> None:
+        """A second viewer during retry keeps the existing worker and view token."""
+        self.camera.camera = {"model": "T8600", "stream": {"state": "idle"}}
+        self.stream.available = False
+        self.stream.stop = AsyncMock()
+        output = self.stream.outputs()["hls"]
+        self.assertIs(await self.camera.async_create_stream(), self.stream)
+        self.assertIs(self.stream.outputs()["hls"], output)
+        self.assertEqual(self.stream.source, "fresh")
+        self.stream.stop.assert_not_awaited()
+        self.stream.update_source.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
