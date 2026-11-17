@@ -346,10 +346,6 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.stream.add_provider("hls")
         self.assertEqual(deadline["value"], 110)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     async def test_homebase_reconnect_keeps_existing_playlist(self) -> None:
         """A transient upstream state must not retire an active HA HLS output."""
         for model in ("T8600", "T8223"):
@@ -383,3 +379,7 @@ if __name__ == "__main__":
                 self.camera._own_nvr_call = owner == "pane"
                 await self.camera.async_create_stream()
                 self.stream.stop.assert_not_awaited()
+
+
+if __name__ == "__main__":
+    unittest.main()
