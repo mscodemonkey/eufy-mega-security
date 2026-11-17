@@ -53,7 +53,7 @@ import type { EventImageCapture, EventImageContext, EventImageReferences } from 
 import { validateRecordingDate, type CameraStoredRecord, type StoredRecordingSummary } from "../stream/stored-recordings.js";
 import type { EventPictureSummary } from "../stream/homebase-event-picture.js";
 import { MediaHttpError } from "../mega/media-request-diagnostic.js";
-import { recordingPathDate } from "../mega/push-recording-reference.js";
+import { pushRecordingReferenceDiagnostic, recordingPathDate } from "../mega/push-recording-reference.js";
 import { EventNameHistoryError, eventHistoryCursor, eventHistoryId, nextEventHistoryDate, type EventNameHistorySummary, type EventNameRecoveryOutcome } from "../stream/homebase-event-names.js";
 
 import type { BatteryState, CameraIdentity, CameraPresetPosition, DetectionKind, HomeBaseState, InventoryDiagnostic, NightVisionMode, SecuritySensorState } from "../domain/types.js";
@@ -7765,14 +7765,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         try {
           picture = await recover();
         } catch {
-          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}`);
+          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}${!event.recording ? pushRecordingReferenceDiagnostic(event.recordingReferenceProblem, event.recordingReferenceShape) : ""}`);
           throw error;
         }
       }
       if (picture === null && owner?.historyEligible && this.config.experimentalHomeBaseEventImages) {
         try { picture = await recover(); }
         catch {
-          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}`);
+          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}${!event.recording ? pushRecordingReferenceDiagnostic(event.recordingReferenceProblem, event.recordingReferenceShape) : ""}`);
           return;
         }
       }

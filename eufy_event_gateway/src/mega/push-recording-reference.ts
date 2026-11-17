@@ -67,6 +67,23 @@ export function pushRecordingReferenceShape(payload: Record<string, unknown>): P
 }
 
 /**
+ * Format only validated field-shape categories for a failed picture recovery.
+ * Notification values and paths never cross this logging boundary. Unknown or
+ * hand-constructed event fields stay opaque rather than becoming log content.
+ */
+export function pushRecordingReferenceDiagnostic(problem: unknown, shape?: PushRecordingReferenceShape): string {
+  const reason = ["id_absent", "id_invalid", "path_absent", "path_unsupported", "time_absent", "time_invalid"].includes(problem as string)
+    ? String(problem) : "unknown";
+  const tokens = new Set(["absolute", "zx", "storage", "camera1", "camera2", "camera_other", "digits6", "digits8",
+    "digits14", "video14", "video_other", "other", "absent", "not_string", "empty", "too_long", "invalid_characters", "too_many_segments"]);
+  const parts = typeof shape?.pathShape === "string" ? shape.pathShape.split(".") : [];
+  const path = parts.length > 0 && parts.length <= 12 && parts.every(part => tokens.has(part)) ? parts.join(".") : "unknown";
+  const calendar = ["supported", "unsupported"].includes(shape?.calendar ?? "") ? shape!.calendar : "unknown";
+  const clock = ["absent", "milliseconds", "seconds", "invalid"].includes(shape?.clock ?? "") ? shape!.clock : "unknown";
+  return ` reference_problem=${reason} reference_path_shape=${path} reference_calendar=${calendar} reference_clock=${clock}`;
+}
+
+/**
  * Explain the first rejected innermost reference field without relaxing admission.
  * Missing fields remain separate from unsupported shapes so the provider can
  * select the next source comparison without requesting a raw notification.

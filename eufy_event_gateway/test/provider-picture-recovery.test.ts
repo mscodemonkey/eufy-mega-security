@@ -279,3 +279,22 @@ for (const route of ["homebase2", "standalone"] as const) {
     } finally { await f.provider.close(); }
   });
 }
+
+for (const picture of [false, true]) {
+  test(`E340 missing-reference picture failure logs field shapes without notification values: cloud=${picture}`, async context => {
+    const logs: string[] = [];
+    context.mock.method(process.stdout, "write", (line: string | Uint8Array) => { logs.push(String(line)); return true; });
+    const f = await fixture(context, "no-reference", true, "homebase3", true);
+    try {
+      const event = f.event("private-visit-value", picture);
+      f.send(event); await settle();
+      const line = logs.find(value => value.includes("event=push_snapshot_recovery_unavailable"));
+      assert.ok(line);
+      assert.match(line, /reason=notification_reference_unavailable reference_problem=id_absent reference_path_shape=absent reference_calendar=unsupported reference_clock=absent/);
+      assert.doesNotMatch(line, /private-visit-value|invented-child|invented-parent|example.invalid/);
+      assert.equal(f.recovery.mock.callCount(), 0);
+      assert.equal(f.stationStarts.mock.callCount(), 0);
+      assert.equal(f.pictures.length, 0);
+    } finally { await f.provider.close(); }
+  });
+}
