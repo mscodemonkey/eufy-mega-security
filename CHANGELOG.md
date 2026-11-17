@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.272
+
+- Add content-free notification framing fields to the existing heartbeat so an unfinished frame can be distinguished from an idle connection. This changes diagnostics only and does not establish a notification-delivery fix.
+
 ## 0.1.271
 
 - Add a fixed, privacy-safe reason to unavailable event-picture key diagnostics, so a normal failure can distinguish account admission from missing, ambiguous or protected metadata. This does not change key access or establish a picture-delivery fix.
