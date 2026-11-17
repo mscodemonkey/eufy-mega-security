@@ -478,10 +478,13 @@ export class PushClient extends EventEmitter {
   private logReceiveProgress(checkpoint: "heartbeat" | "closed"): void {
     const progress = this.receiveProgress;
     try {
+      const framing = this.parser.diagnostic();
       logger.info("mcs_receive_status", [
         `checkpoint=${checkpoint}`, `chunks=${progress.chunks}`, `bytes=${progress.bytes}`,
         `frames=${progress.frames}`, `data_stanzas=${progress.deliveries}`,
         `heartbeat_frames=${progress.heartbeats}`, `decode_failures=${progress.decodeFailures}`,
+        `framing_state=${framing.state}`, `buffered_bytes=${framing.bufferedBytes}`,
+        `pending_body_bytes=${framing.pendingBodyBytes}`,
       ].join(" "));
     } catch {
 
