@@ -509,9 +509,9 @@ Private diagnostic bundles for all discovered device families are described in
 
 ### Experimental HomeBase 2 startup recovery
 
-The app option `experimental_hb2_startup_recovery` is off by default. It tries
+The app option `experimental_hb2_startup_recovery` is off by default. Authenticated shared accounts can use the same normal live-view route as owning accounts. This does not add account permissions or use another account's keys. It tries
 one early replacement of an acknowledged but silent T8140-Z or T8210 start
-through T8010, using the owning account. It preserves the startup deadline and
+through T8010, using the existing authenticated account. It preserves the startup deadline and
 skips another local view or recording. Hardware behaviour is unconfirmed.
 See [the app guide](eufy_event_gateway/DOCS.md#early-homebase-2-startup-recovery-experimental).
 
