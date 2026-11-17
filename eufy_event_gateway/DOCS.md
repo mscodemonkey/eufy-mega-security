@@ -56,7 +56,9 @@ addresses, hostnames and URLs are refused without printing their values.
 
 `experimental_hb2_startup_recovery` is off by default. It is limited to exact
 T8140-Z/type 14 and T8210/type 7 cameras through HomeBase 2 (T8010/type 0),
-using their owning account and an authenticated gateway.
+using an authenticated gateway and the existing owner or shared account. The
+normal live-view route must already be available to that account. This trial
+does not add permissions or use another account's keys.
 It tries one replacement of its own connection after six seconds when the
 start was acknowledged but no video or audio arrived. It preserves the original
 20-second startup budget, waits for teardown, and skips recovery while another

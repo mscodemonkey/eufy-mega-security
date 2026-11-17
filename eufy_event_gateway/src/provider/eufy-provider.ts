@@ -637,10 +637,11 @@ export function supportsExperimentalHb2LiveAudio(
 }
 
 /**
- * Admit only the exact owned HB2 child routes for a default-off no-frame trial.
+ * Admit exact HB2 child routes for a default-off no-frame trial.
  * Transport readiness is checked by the caller. This grants no new device
  * capability and does not authorize recovery of another viewer or recording.
- * @param authenticated True only for a protected gateway and the owning account.
+ * Normal live-view permission remains enforced by the existing media route.
+ * @param authenticated True only for a protected gateway with an authenticated Eufy session.
  */
 export function supportsExperimentalHb2StartupRecovery(
   device: Pick<MegaInventoryDevice, "model" | "deviceType" | "channel" | "adminUserId">,
@@ -3691,7 +3692,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
       const recoverHb2Silence = supportsExperimentalHb2StartupRecovery(device, route,
         this.config.experimentalHb2StartupRecovery === true, this.config.apiAuthenticationConfigured === true
-          && this.#client.isAuthenticatedUser(device.adminUserId ?? ""))
+          && this.#client.isAuthenticated)
         && this.#hb2StartupPeerIdle(serial, peer.serial);
       const recoverOwnedPeer = recoverHb2Silence || route.homeBaseAttached && peer.model === "T8010"
         && device.model === "T8113-Z" && device.deviceType === 8 && device.channel === 0;
@@ -3700,6 +3701,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       let replacements = 0;
       for (;;) {
         current();
+        if (recoverHb2Silence && !this.#client.isAuthenticated) throw new Error("Camera startup session authentication ended");
         if (recoverHb2Silence && !this.#hb2StartupPeerIdle(serial, peer.serial)) throw new Error("Wait for this HomeBase's other media owner");
         if (startupDeadline !== undefined && performance.now() >= startupDeadline) throw new Error("Camera startup deadline expired");
         if (recoverOwnedPeer) {

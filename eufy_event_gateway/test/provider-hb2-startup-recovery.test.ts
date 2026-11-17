@@ -143,9 +143,31 @@ test("a view that arrives during observation prevents early replacement", async 
 });
 
 
-test("a shared account cannot opt into early peer replacement", async context => {
+test("a shared account can recover its ordinary admitted live route once", async context => {
   const f = await fixture(context);
   context.mock.method(MegaClient.prototype, "isAuthenticatedUser", () => false);
+  const start = f.provider.startStream("camera"); await flush();
+  f.control.video = true;
+  context.mock.timers.tick(6000); await flush(); context.mock.timers.tick(50); await start;
+  assert.equal(f.sessions.length, 2);
+  assert.equal(f.published[0]?.[1], f.sessions[1]!.output);
+  assert.equal(f.published[0]?.[3], f.sessions[1]!.audioOutput);
+});
+
+test("authentication loss during observation prevents shared-account replacement", async context => {
+  const f = await fixture(context);
+  context.mock.method(MegaClient.prototype, "isAuthenticatedUser", () => false);
+  const start = f.provider.startStream("camera");
+  const rejected = assert.rejects(start, /authentication ended/);
+  await flush();
+  context.mock.getter(MegaClient.prototype, "isAuthenticated", () => false);
+  context.mock.timers.tick(6000); await rejected;
+  assert.equal(f.sessions.length, 1);
+});
+
+test("an unauthenticated session cannot opt into early replacement", async context => {
+  const f = await fixture(context);
+  context.mock.getter(MegaClient.prototype, "isAuthenticated", () => false);
   await f.provider.startStream("camera"); context.mock.timers.tick(6000); await flush();
   assert.equal(f.sessions.length, 1); assert.equal(f.order.includes("close"), false);
 });
