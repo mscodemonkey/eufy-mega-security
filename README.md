@@ -884,6 +884,8 @@ Installations set up before this option keep the video they had: compatibility
 mode is on unless they had enabled **Try native camera video**, so native video
 stays opt-in for them.
 
+Receive-only audio on HomeBase 2 is reporter-confirmed on v0.1.270 for one T8210/type 7 doorbell and three T8140-Z/type 14 cameras through T8010/type 0. The [optional audio guide](docs/HB2_LIVE_AUDIO.md) applies. This confirms listening on those pairings, while intermittent slow video starts remain unresolved in [#854](https://github.com/mscodemonkey/eufy-mega-security/issues/854). It does not add microphone talkback.
+
 Each camera that delivers live audio has a **Live audio** switch, off by default. A direct S220 receive-audio view waits up to 12 seconds for its first AAC before choosing video-only output. It starts sooner when audio arrives, keeps the existing startup memory limit, and never opens another camera session. A camera with its microphone muted can therefore take longer to start when Live audio is enabled. If valid audio arrives later on a direct S220 native view, one unrecorded, marked viewer can reconnect during the existing ten-second source grace. It rejoins the same camera source. Recording-protected and preloaded views, other models and shorter configured grace periods are excluded. Each marked view gets at most one handover on that source. Actual S220 playback after this handover remains unconfirmed. The `camera_live_audio_startup` log after closing a compatible view reports timing and whether audio was selected, without recording media or device identifiers.
 Off, its views carry video only and open fastest. On, they carry the camera's
 sound as well, in one MPEG-TS stream with the video left as it is; in a browser
