@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.273
+
+- Add a separate default-off HomeBase 2 startup recovery trial for exact T8140-Z and T8210 cameras through T8010 using the owning account. It permits one earlier replacement of an acknowledged start with no video or audio, preserves the original deadline, and skips other local media and recordings. Hardware recovery is unconfirmed.
+
 ## 0.1.272
 
 - Add content-free notification framing fields to the existing heartbeat so an unfinished frame can be distinguished from an idle connection. This changes diagnostics only and does not establish a notification-delivery fix.
