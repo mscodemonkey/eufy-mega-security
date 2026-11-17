@@ -70,7 +70,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         old = SimpleNamespace(stop=AsyncMock(), outputs=Mock(return_value={"hls": object()}),
                               dynamic_stream_settings=SimpleNamespace(preload_stream=False))
         self.camera.stream = old
-        self.camera.camera = {"stream": {"state": "idle"}}
+        self.camera.camera = {"stream": {"state": "idle"}, "hlsIdleHandoverSupported": True}
         self.assertIs(await self.camera.async_create_stream(), self.stream)
         old.stop.assert_awaited_once()
         self.assertIsNone(self.camera.stream)

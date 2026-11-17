@@ -409,10 +409,13 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 )
                 if self.hass is not None and self.stream is stream:
                     if stream.outputs():
+                        if self.camera.get("hlsIdleHandoverSupported") is True:
+                            stream.update_source(_view_for(self, source))
+                        else:
 
-                        # A reconnect already owns this HLS output. Updating the
-                        # worker would retire it while its browser still polls.
-                        stream.source = _with_view(source, _view_of(stream.source))
+                            # Ordinary reconnects retain the output and view mark.
+                            # Restarting here would invalidate its browser playlist.
+                            stream.source = _with_view(source, _view_of(stream.source))
                     else:
                         stream.source = _view_for(self, source)
             except (GatewayClientError, asyncio.TimeoutError):
