@@ -174,6 +174,9 @@ export interface EufyProviderConfig {
   /** Explicit opt-in for exact official-model control trials, off by default. */
   readonly experimentalModelControls?: boolean;
 
+  /** Default-off, authenticated single replacement for silent HB2 battery-camera starts. */
+  readonly experimentalHb2StartupRecovery?: boolean;
+
   /** Default-off C31 microphone input through its existing media session. */
   readonly experimentalC31LiveTalkback?: boolean;
 
@@ -626,6 +629,26 @@ export function supportsExperimentalHb2LiveAudio(
   routeReady: boolean,
 ): boolean {
   return routeReady && route?.homeBaseAttached === true
+    && route.peer.model === "T8010" && route.peer.deviceType === 0
+    && ((device.model === "T8210" && device.deviceType === 7)
+      || (device.model === "T8140-Z" && device.deviceType === 14))
+    && Number.isSafeInteger(device.channel) && device.channel! >= 0 && device.channel! <= 31
+    && Boolean(device.adminUserId) && device.adminUserId === route.peer.adminUserId;
+}
+
+/**
+ * Admit only the exact owned HB2 child routes for a default-off no-frame trial.
+ * Transport readiness is checked by the caller. This grants no new device
+ * capability and does not authorize recovery of another viewer or recording.
+ * @param authenticated True only for a protected gateway and the owning account.
+ */
+export function supportsExperimentalHb2StartupRecovery(
+  device: Pick<MegaInventoryDevice, "model" | "deviceType" | "channel" | "adminUserId">,
+  route: Pick<PpcsStreamRoute, "homeBaseAttached" | "peer"> | null,
+  enabled: boolean,
+  authenticated: boolean,
+): boolean {
+  return enabled && authenticated && route?.homeBaseAttached === true
     && route.peer.model === "T8010" && route.peer.deviceType === 0
     && ((device.model === "T8210" && device.deviceType === 7)
       || (device.model === "T8140-Z" && device.deviceType === 14))
@@ -3628,6 +3651,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     } finally { try { await release?.(); } finally { this.#nvrLiveJobs.delete(station.serial); } }
   }
 
+  /** Decline early HB2 replacement while another local media owner uses the station. */
+  #hb2StartupPeerIdle(serial: string, stationSerial: string): boolean {
+    if (this.#recordingPeerReserved(serial)) return false;
+    for (const map of [this.#ppcsStreams, this.#streamStarts]) {
+      for (const other of map.keys()) {
+        if (other !== serial && this.#devices.get(other)?.parentSerial === stationSerial) return false;
+      }
+    }
+    return true;
+  }
+
   async #startStreamOnce(serial: string, current: () => void, signal: AbortSignal): Promise<void> {
     const startedAt = performance.now();
     current();
@@ -3655,13 +3689,18 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const cipherReadyAt = performance.now();
       current();
       if (this.#recordingPeerReserved(serial)) throw new Error("Wait for recording retrieval before starting live view");
-      const recoverOwnedPeer = route.homeBaseAttached && peer.model === "T8010"
+      const recoverHb2Silence = supportsExperimentalHb2StartupRecovery(device, route,
+        this.config.experimentalHb2StartupRecovery === true, this.config.apiAuthenticationConfigured === true
+          && this.#client.isAuthenticatedUser(device.adminUserId ?? ""))
+        && this.#hb2StartupPeerIdle(serial, peer.serial);
+      const recoverOwnedPeer = recoverHb2Silence || route.homeBaseAttached && peer.model === "T8010"
         && device.model === "T8113-Z" && device.deviceType === 8 && device.channel === 0;
       let startupDeadline: number | undefined;
       let maximumDeadline: number | undefined;
       let replacements = 0;
       for (;;) {
         current();
+        if (recoverHb2Silence && !this.#hb2StartupPeerIdle(serial, peer.serial)) throw new Error("Wait for this HomeBase's other media owner");
         if (startupDeadline !== undefined && performance.now() >= startupDeadline) throw new Error("Camera startup deadline expired");
         if (recoverOwnedPeer) {
           const fresh = this.#devices.get(serial);
@@ -3709,8 +3748,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             const observed = await observeOwnedStartup(stream.output, stream.stats,
               Math.min(6000, Math.max(0, startupDeadline - performance.now())), signal);
             current();
-            if ((observed === "silent" || observed === "unacknowledged" || observed === "stalled") && replacements < 2 && startupDeadline - performance.now() > 500) {
-              logger.info("camera_stream_peer_recovery", `model=T8113-Z topology=attached attempt=${replacements + 1} reason=${observed === "silent" ? "acknowledged_no_response" : observed === "unacknowledged" ? "unacknowledged_start" : "startup_media_stall"}`);
+            const replacementAllowed = recoverHb2Silence
+              ? observed === "silent" && stream.stats.audioFrames === 0 && this.#hb2StartupPeerIdle(serial, peer.serial)
+              : observed === "silent" || observed === "unacknowledged" || observed === "stalled";
+            if (replacementAllowed && replacements < (recoverHb2Silence ? 1 : 2) && startupDeadline - performance.now() > 500) {
+              logger.info("camera_stream_peer_recovery", `model=${device.model} topology=attached attempt=${replacements + 1} reason=${observed === "silent" ? "acknowledged_no_response" : observed === "unacknowledged" ? "unacknowledged_start" : "startup_media_stall"}`);
               stream.close("replaced");
               await stream.waitUntilClosed();
               if (this.#ppcsStreams.get(serial) === stream) this.#ppcsStreams.delete(serial);

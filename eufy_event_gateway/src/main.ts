@@ -97,6 +97,7 @@ if (config.provider === "simulated") {
     maxStreamSeconds: config.maxStreamSeconds,
     homeBaseLocalAddresses: config.homeBaseLocalAddresses ?? [],
     experimentalModelControls: config.experimentalModelControls,
+    experimentalHb2StartupRecovery: config.experimentalHb2StartupRecovery,
     experimentalE30Locks: config.experimentalE30Locks,
     experimentalNvrLive: config.experimentalNvrLive,
     experimentalT8420Live: config.experimentalT8420Live,

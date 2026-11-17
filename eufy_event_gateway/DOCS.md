@@ -51,3 +51,18 @@ With the provided Compose setup, add the same list to `docker/options.json`.
 When launching the gateway directly, set `EUFY_GATEWAY_HOMEBASE_LOCAL_ADDRESSES` to the list
 encoded as JSON. The default is `[]`. Malformed entries, duplicate serials, public
 addresses, hostnames and URLs are refused without printing their values.
+
+### Early HomeBase 2 startup recovery (experimental)
+
+`experimental_hb2_startup_recovery` is off by default. It is limited to exact
+T8140-Z/type 14 and T8210/type 7 cameras through HomeBase 2 (T8010/type 0),
+using their owning account and an authenticated gateway.
+It tries one replacement of its own connection after six seconds when the
+start was acknowledged but no video or audio arrived. It preserves the original
+20-second startup budget, waits for teardown, and skips recovery while another
+local view, start or recording uses the HomeBase. No camera setting is changed.
+
+Hardware behaviour is unconfirmed. Enable the option only to test this specific
+intermittent startup problem, then use an ordinary live view. If it still fails,
+retain the complete `camera_stream_closed` line. Turn the option off to return
+to normal startup behaviour. Live audio remains separate.
