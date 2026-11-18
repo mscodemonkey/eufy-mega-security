@@ -72,7 +72,10 @@ capabilities:
     motion:
       connections:
         direct:
-          status: declared
+          status: mixed
+          tested_on: 2026-11-18
+          tested_by: julianmclean
+          notes: Two standalone T81A0 cameras on v0.1.274 receive Eufy phone notifications, but EMS reports unhandled notifications with missing event fields and no HA motion. Earlier motion confirmations do not settle this setup.
         T9000:
           status: declared
     person:

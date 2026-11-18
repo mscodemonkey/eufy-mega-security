@@ -12,6 +12,18 @@ models:
 device_type: 24
 capabilities:
   controls:
+    manual_spotlight:
+      connections:
+        T8030:
+          status: reported
+          tested_on: 2026-11-18
+          tested_by: Joshii980
+          notes: Default-off experimental buttons physically switch on and off in about ten seconds and complete without false errors on v0.1.274. The command receipt does not establish a readable light state.
+      write:
+        command: 1400
+      values:
+        "0": Manual light off
+        "1": Manual light on
     enabled:
       connections:
         T8030:
