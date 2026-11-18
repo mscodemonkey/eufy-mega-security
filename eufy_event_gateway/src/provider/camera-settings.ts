@@ -68,8 +68,9 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
     if (setting === "aiTracking") return { readParam: 6016, command: 1700, form: "attached-tracking", experimental: true };
   }
   if (setting === "audioRecording" || setting === "aiTracking") return null;
-  if (setting === "cameraEnabled") return standalone && model === "T8110" && type === 10035
-    ? { readParam: 6250, command: 1350, form: "privacy" } : null;
+  if (setting === "cameraEnabled") return model === "T8110" && type === 10035
+    ? standalone ? { readParam: 6250, command: 1350, form: "privacy" }
+      : { readParam: 1035, command: 1035, form: "binary", experimental: true } : null;
   if (setting === "streamingQuality" && model === "T8170" && type === 48 && !standalone) {
     return { readParam: 2730, command: 1350, form: "attached-quality" };
   }
@@ -98,6 +99,11 @@ function nativeProfile(model: string, type: number | null, standalone: boolean, 
 
 /** Admit exact reviewed transport families, excluding nearby model variants; the provider owns opt-in and account gates. */
 export function cameraSettingProfile(route: ModelControlRoute, setting: CameraSettingChange["setting"]): CameraSettingProfile | null {
+  if (route.model === "T8110" && setting === "cameraEnabled" && route.homeBaseAttached) {
+    return route.deviceType === 10035 && !route.selfPeer && route.peerModel === "T8030"
+      && Number.isInteger(route.channel) && route.channel! >= 1 && route.channel! <= 255
+      ? nativeProfile(route.model, route.deviceType, false, setting) : null;
+  }
   if (route.model === "T8171" && ["cameraEnabled", "audioRecording", "aiTracking"].includes(setting)) {
     return route.deviceType === 88 && route.homeBaseAttached && !route.selfPeer && route.peerModel === "T8030"
       && route.channel === 1 ? nativeProfile(route.model, route.deviceType, false, setting) : null;
@@ -142,6 +148,8 @@ export function readCameraSetting(
 export function cameraSettingWireValue(profile: CameraSettingProfile, change: CameraSettingChange): number {
   parseCameraSettingChange(change);
   if (change.setting === "cameraEnabled") {
+    if (profile.readParam === 1035 && profile.command === 1035 && profile.form === "binary"
+      && profile.experimental === true && !profile.ladder) return change.value ? 0 : 1;
     if (profile.readParam !== 6250 || profile.command !== 1350 || !["privacy", "attached-privacy"].includes(profile.form) || profile.ladder) throw new CameraSettingError("unavailable");
     return change.value ? 0 : 1;
   }
