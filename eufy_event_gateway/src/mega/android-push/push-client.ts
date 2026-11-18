@@ -75,16 +75,37 @@ export function mcsDeliveryLogSummary(object: unknown, duplicate: boolean): stri
     const key = (entry as Record<string, unknown>).key;
     return typeof key === "string" ? [key] : [];
   }));
+  const payloads = appData.filter((entry) => typeof entry === "object" && entry !== null
+    && (entry as Record<string, unknown>).key === "payload");
+  const payloadStatus = payloads.length === 0 ? "absent" : payloads.length > 1 ? "multiple"
+    : decodePayloadField((payloads[0] as Record<string, unknown>).value).status;
   return [
     `persistent_id_present=${typeof record.persistentId === "string"}`,
     `duplicate=${duplicate}`,
     `app_data_entries=${appData.length}`,
     `payload_entry=${keys.has("payload")}`,
+    `payload_status=${payloadStatus}`,
     `device_entry=${keys.has("device_sn")}`,
     `station_entry=${keys.has("station_sn")}`,
     `event_entry=${keys.has("a") || keys.has("event_type")}`,
     `category_present=${typeof record.category === "string"}`,
   ].join(" ");
+}
+
+/** Classify the existing body decoder's result without retaining a loggable value. */
+function decodePayloadField(value: unknown): { status: string; decoded?: unknown } {
+  if (typeof value !== "string") return { status: "invalid_value" };
+  if (value.length > 90_000) return { status: "encoded_limit" };
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return { status: "invalid_base64" };
+  const json = readNullTerminated(Buffer.from(value, "base64"));
+  if (Buffer.byteLength(json, "utf8") > 65_536) return { status: "decoded_limit" };
+  try {
+    const decoded: unknown = JSON.parse(json);
+    return { status: decoded !== null && typeof decoded === "object" && !Array.isArray(decoded)
+      ? "json_object" : "json_other", decoded };
+  } catch {
+    return { status: "invalid_json", decoded: json };
+  }
 }
 
 /** Decode bounded Firebase app-data fields while retaining the complete Eufy envelope. */
@@ -97,14 +118,8 @@ export function decodeMcsAppData(object: unknown): EufyPushMessage {
     const item = entry as Record<string, unknown>;
     if (typeof item.key !== "string" || item.key.length > 128 || typeof item.value !== "string") continue;
     if (item.key === "payload") {
-      if (item.value.length > 90_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.value)) continue;
-      const json = readNullTerminated(Buffer.from(item.value, "base64"));
-      if (Buffer.byteLength(json, "utf8") > 65_536) continue;
-      try {
-        data.payload = JSON.parse(json);
-      } catch {
-        data.payload = json;
-      }
+      const payload = decodePayloadField(item.value);
+      if ("decoded" in payload) data.payload = payload.decoded;
     } else if (item.value.length <= 2_048) {
       data[item.key] = item.value;
     }

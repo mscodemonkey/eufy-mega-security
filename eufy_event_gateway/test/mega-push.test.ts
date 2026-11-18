@@ -126,7 +126,7 @@ test("summarizes every MCS delivery without retaining identifiers or payloads", 
 
   assert.equal(
     summary,
-    "persistent_id_present=true duplicate=true app_data_entries=2 payload_entry=true device_entry=true station_entry=false event_entry=false category_present=true",
+    "persistent_id_present=true duplicate=true app_data_entries=2 payload_entry=true payload_status=invalid_base64 device_entry=true station_entry=false event_entry=false category_present=true",
   );
   assert.equal(summary.includes("private"), false);
 });
