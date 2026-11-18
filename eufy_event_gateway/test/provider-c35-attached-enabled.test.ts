@@ -17,7 +17,7 @@ import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 
 for (const mode of ["ready", "disabled", "guest", "no-api", "no-binding", "wrong-parent-owner",
-  "duplicate-channel", "missing-read", "duplicate-read", "lost-baseline", "changed-binding"] as const) {
+  "duplicate-channel", "missing-read", "duplicate-read", "lost-baseline", "changed-binding", "pending-stream"] as const) {
   test(`attached C35 keeps owner, channel and fresh-read gates: ${mode}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "c35-attached-"));
     let actual = 0, writes = 0, reads = 0, bound = true;
@@ -53,6 +53,14 @@ for (const mode of ["ready", "disabled", "guest", "no-api", "no-binding", "wrong
       maxStreamSeconds: 120, experimentalModelControls: mode !== "disabled", apiAuthenticationConfigured: mode !== "no-api" });
     try {
       await provider.start(events);
+      if (mode === "pending-stream") {
+        const pending = provider.startStream("camera").catch(() => {});
+        await assert.rejects(provider.setCameraEnabled("camera", false));
+        await provider.stopStream("camera");
+        await pending;
+        assert.equal(writes, 0);
+        return;
+      }
       if (mode === "ready") {
         assert.equal(state.getCamera("camera").enableControlSupported, true);
         assert.equal((await provider.setCameraEnabled("camera", false)).enabled, false);

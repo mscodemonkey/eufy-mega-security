@@ -4180,7 +4180,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
     if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
       || related.some(row => (this.#ppcsStreams.has(row.serial) && !(row.serial === serial && lightWakeReady)) || controlMaps.some(map => map.has(row.serial))
-        || ["attached-quality", "privacy"].includes(profile.form) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
+        || (attachedC35 || ["attached-quality", "privacy"].includes(profile.form)) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
