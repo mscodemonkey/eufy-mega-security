@@ -1,6 +1,6 @@
 # Experimental C35 camera enablement
 
-This trial covers only eufyCam C35 T8110, type 10035, using its own standalone channel-zero route. It does not cover a C35 attached to a HomeBase. Camera power, monitoring and restoration on real hardware remain unconfirmed. Spotlight control is separate.
+This trial covers only eufyCam C35 T8110, type 10035, using its own standalone channel-zero route or a unique positive child channel on HomeBase 3 T8030. Both the camera and HomeBase must belong to the configured owner. HomeBase 2 and shared accounts are excluded. The attached route uses its separately reported camera-switch baseline, without borrowing a standalone privacy value. Camera power, monitoring and restoration on real hardware remain unconfirmed. Spotlight control is separate.
 
 The configured EMS account must own the camera, gateway API authentication must be enabled and the camera must provide a recognised current setting. Enable Experimental model controls in the EMS app configuration. On the normal HA device page, show disabled entities and enable Camera enabled (experimental). The entity starts disabled and remains unavailable without its account, route and state requirements.
 

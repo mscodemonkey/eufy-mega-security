@@ -19,6 +19,37 @@ const profiles = [
   ["T817L", 10031, false, 6041, [1, 2, 3]],
 ] as const;
 
+test("attached C35 enablement uses its reported 1035 baseline and binary child command", () => {
+  const r = route("T8110", 10035, true);
+  const p = cameraSettingProfile(r, "cameraEnabled")!;
+  assert.deepEqual(p, { readParam: 1035, command: 1035, form: "binary", experimental: true });
+  for (const [raw, expected] of [["0", true], ["1", false]] as const) {
+    const rows = [{ param_type: 1035, param_value: raw }];
+    assert.equal(readCameraSetting(rows, "T8110", 10035, false, "cameraEnabled"), expected);
+    assert.equal(safeInventoryReads(rows, 10035, "T8110", false).enabled, expected);
+    const frame = buildReviewedCameraSettingPayload({ setting: "cameraEnabled", value: expected }, r,
+      "fixture-owner", Buffer.alloc(32, 7), 1, 1791464400000);
+    const body = clear(frame, Buffer.alloc(32, 7));
+    assert.equal(frame.command, 1035);
+    assert.equal(body.readUInt32LE(0), 2);
+    assert.equal(body.readUInt32LE(4), Number(raw));
+  }
+});
+
+test("attached C35 refuses ambiguous baselines and neighbouring routes", () => {
+  for (const rows of [[], [{ param_type: 6250, param_value: 0 }],
+    [{ param_type: 1035, param_value: 0 }, { param_type: 1035, param_value: 0 }],
+    ...[true, null, "", " 0", "0.0", 2].map(param_value => [{ param_type: 1035, param_value }])]) {
+    assert.equal(readCameraSetting(rows, "T8110", 10035, false, "cameraEnabled"), undefined);
+    assert.equal(safeInventoryReads(rows, 10035, "T8110", false).enabled, undefined);
+  }
+  const r = route("T8110", 10035, true);
+  for (const rejected of [{ ...r, channel: 0 }, { ...r, channel: 256 }, { ...r, selfPeer: true },
+    { ...r, peerModel: "T8010" }, { ...r, model: "T8110X" }, { ...r, deviceType: 8 }]) {
+    assert.equal(cameraSettingProfile(rejected, "cameraEnabled"), null);
+  }
+});
+
 function route(model: string, type: number, attached: boolean): ModelControlRoute {
   return { model, deviceType: type, homeBaseAttached: attached, peerModel: attached ? "T8030" : model, selfPeer: !attached, channel: attached ? 2 : 0 };
 }

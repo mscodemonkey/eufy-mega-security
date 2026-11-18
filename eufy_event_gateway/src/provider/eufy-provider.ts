@@ -4157,6 +4157,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
     if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
     if (profile.experimental && (!this.config.apiAuthenticationConfigured || peer.adminUserId !== device.adminUserId)) throw new CameraSettingError("unavailable");
+    const attachedC35 = device.model === "T8110" && change.setting === "cameraEnabled" && route.homeBaseAttached;
+    if (attachedC35 && !this.#attachedC35EnableAccount(device, peer)) throw new CameraSettingError("unavailable");
     const administratorLight = change.setting === "manualFloodlight" && profile.experimental === true
       && this.#manual2cLightMember(device, peer);
     const administratorSensitivity = change.setting === "motionSensitivity" && profile.experimental === true
@@ -4178,7 +4180,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
     if (this.#trialPeers.has(peer.serial) || this.#recordingPeerReserved(serial) || this.#stationOperations.has(peer.serial)
       || related.some(row => (this.#ppcsStreams.has(row.serial) && !(row.serial === serial && lightWakeReady)) || controlMaps.some(map => map.has(row.serial))
-        || ["attached-quality", "privacy"].includes(profile.form) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
+        || (attachedC35 || ["attached-quality", "privacy"].includes(profile.form)) && this.#streamStarts.has(row.serial))) throw new CameraSettingError("busy");
     const releaseTrialPeer = this.#reserveTrialPeer(peer.serial);
     const generation = this.#startupGeneration;
     const deadline = Date.now() + 90_000;
@@ -4196,6 +4198,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || !lightWakeSource.hasAttached2CLightWakeBinding(peer.serial, current?.channel ?? null, current?.adminUserId ?? null)))
         || (administratorLight && !this.#manual2cLightMember(current, currentPeer))
         || (administratorSensitivity && !this.#hb2SensitivityMember(current, currentPeer))
+        || (attachedC35 && !this.#attachedC35EnableAccount(current, currentPeer))
         || (attachedSetting && !this.#attachedT8171SettingAccount(current, currentPeer))) throw new CameraSettingError("unavailable");
     };
     const clear = (): void => {
@@ -6270,6 +6273,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
   }
 
+  /** Bind the attached C35 trial to its owner's unique positive HB3 child channel. */
+  #attachedC35EnableAccount(device: MegaInventoryDevice, peer: MegaInventoryDevice | undefined): boolean {
+    return device.model === "T8110" && device.deviceType === 10035 && device.category === "eufy_security"
+      && peer?.model === "T8030" && peer.deviceType === 18 && device.parentSerial === peer.serial
+      && device.serial !== peer.serial && device.channel !== null && device.channel >= 1 && device.channel <= 255
+      && !!device.adminUserId && peer.adminUserId === device.adminUserId
+      && this.#client.isAuthenticatedUser(device.adminUserId)
+      && [...this.#devices.values()].filter(row => row.parentSerial === peer.serial && row.channel === device.channel).length === 1;
+  }
+
   /** Admit tracking only after this model reports a strict current boolean preference. */
   #c37TrackingReady(device: MegaInventoryDevice): boolean {
     return this.#c37ControlRouteReady(device) && typeof device.reads.aiTrackingEnabled === "boolean";
@@ -6471,6 +6484,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ? this.#attachedT8171SettingReady(device, "cameraEnabled") : device.model === "T8110" && device.deviceType === 10035
         ? experimentalSettingsReady && this.config.apiAuthenticationConfigured === true
           && this.#client.authenticatedBinding() !== null && settingRouteReady && settingRoute !== null
+          && (!route?.homeBaseAttached || this.#attachedC35EnableAccount(device, route.peer))
           && cameraSettingProfile(settingRoute, "cameraEnabled") !== null && typeof device.reads.enabled === "boolean"
         : supportsCameraEnablement(
         device,
@@ -8192,9 +8206,9 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
   const attachedT8171Settings = soloE30 && !standaloneChannelZero && t8171OutdoorMode === false;
   const attachedAudio = attachedT8171Settings ? readCameraSetting(settingRows, model, deviceType, false, "audioRecording") : undefined;
   const attachedTracking = attachedT8171Settings ? readCameraSetting(settingRows, model, deviceType, false, "aiTracking") : undefined;
-  const c35Enabled = model === "T8110" && deviceType === 10035 && standaloneChannelZero;
+  const c35Enabled = model === "T8110" && deviceType === 10035;
   const enabled = attachedT8171Settings ? readCameraSetting(settingRows, model, deviceType, false, "cameraEnabled") as boolean | undefined
-    : c35Enabled ? readCameraSetting(settingRows, model, deviceType, true, "cameraEnabled") as boolean | undefined : c31
+    : c35Enabled ? readCameraSetting(settingRows, model, deviceType, standaloneChannelZero, "cameraEnabled") as boolean | undefined : c31
     ? privacy6250 === 0 || privacy6250 === 1 ? privacy6250 === 0 : undefined
     : openDevice === 0 || openDevice === 1
     ? openDevice === 1
