@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.275
+
+- Extend the disabled-by-default C35 camera-enabled trial to exact owner-bound HomeBase 3 child routes, requiring a fresh reported baseline and single-write confirmation. Physical camera behaviour remains unconfirmed.
+- Retain the last HA HLS output-cleanup observation in existing diagnostics without changing timers or reconnects. The reported dashboard freeze remains unresolved.
+- Add content-free notification-body reasons to the existing delivery log, helping distinguish a rejected body from an unrecognised S120 event. This does not fix missing S120 motion notifications.
+- Preserve the first exact T8210/HomeBase 3 startup result in stream diagnostics. Returned timeouts remain separate from transport acknowledgements, with no change to starts, retries or deadlines.
+- Keep the previously published lookup preference while the separate app-connection change remains held for investigation.
+- Record the confirmed E330 light-button result on v0.1.274 and the unresolved standalone S120 motion report in the capability notes.
+
 ## 0.1.274
 
 - Keep an ordinary HomeBase camera's existing HA HLS playlist during a reconnect, while preserving NVR handoff and recording/preload ownership. This addresses a reproduced software failure path. The reported browser freeze still needs confirming.
