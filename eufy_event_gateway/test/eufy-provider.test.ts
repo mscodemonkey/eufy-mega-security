@@ -85,6 +85,26 @@ test("retains only the device's own reported firmware and hardware metadata", ()
   assert.equal(devices[1]?.hardwareVersion, null);
 });
 
+test("prefers each record's app connection servers and bounds the legacy fallback", () => {
+  const [station, child] = parseMegaInventory({ devices: [
+    { device_sn: "station", app_conn: " app-servers ", p2p_conn: "legacy-servers" },
+    { device_sn: "child", parent_sn: "station", app_conn: "child-app-servers", p2p_conn: "child-legacy-servers" },
+  ] });
+  assert.equal(station?.p2pConnection, "app-servers");
+  assert.equal(child?.p2pConnection, "child-app-servers");
+
+  for (const app of [undefined, null, "", "   ", 42, {}, "a".repeat(513)]) {
+    const [device] = parseMegaInventory({ devices: [{ device_sn: "station", app_conn: app, p2p_conn: " legacy-servers " }] });
+    assert.equal(device?.p2pConnection, "legacy-servers");
+  }
+  for (const legacy of [undefined, null, "", "  ", 42, {}, "p".repeat(513)]) {
+    const [device] = parseMegaInventory({ devices: [{ device_sn: "station", app_conn: "", p2p_conn: legacy }] });
+    assert.equal(device?.p2pConnection, null);
+  }
+  const [bounded] = parseMegaInventory({ devices: [{ device_sn: "station", app_conn: "a".repeat(512), p2p_conn: "legacy" }] });
+  assert.equal(bounded?.p2pConnection, "a".repeat(512));
+});
+
 test("keeps an established station connected through three isolated refresh failures", () => {
   assert.equal(stationConnectedAfterRefreshFailure(true, 1), true);
   assert.equal(stationConnectedAfterRefreshFailure(true, 2), true);

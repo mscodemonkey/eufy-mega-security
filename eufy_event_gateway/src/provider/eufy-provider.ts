@@ -7916,7 +7916,11 @@ function jpegBoundaryResult(data: Buffer): "missing_both" | "missing_end" | "mis
   return "missing_both";
 }
 
-/** Parse and normalize the untrusted device list returned by Mega. */
+/**
+ * Parse and normalize the untrusted device list returned by Mega.
+ * Connection initialization uses the app's server list when present, retaining
+ * the legacy peer list only for records without a usable app connection value.
+ */
 export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
   if (!isRecord(response) || !Array.isArray(response.devices)) return [];
   const devices: MegaInventoryDevice[] = [];
@@ -7942,7 +7946,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       category: safeValue(value.category, 100),
       channel,
       p2pDid: safeValue(value.p2p_did, 128),
-      p2pConnection: safeValue(value.p2p_conn, 512) ?? safeValue(value.app_conn, 512),
+      p2pConnection: safeValue(value.app_conn, 512) ?? safeValue(value.p2p_conn, 512),
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
