@@ -3,6 +3,7 @@
 HA owns HTTP handlers, worker shutdown and recording/preload decisions. This
 observer owns only a stream-local quiet timer. The gateway keeps protecting the
 upstream HTTP response until HA actually closes it, including during cleanup.
+The diagnostics boundary can read the last content-free cleanup observation.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class HlsViewActivity:
         self._timer: asyncio.TimerHandle | None = None
         self._closed = False
         self._requests = 0
+        self._cleanup_observation: dict[str, Any] | None = None
         self._awake = output.idle_timer.awake
         self._cleanup = output.cleanup
         self._wrapped_awake: Callable[[], None] | None = None
@@ -71,7 +73,15 @@ class HlsViewActivity:
             observer._request()
 
         def cleanup() -> None:
-            """Retire only observer state before HA cleans up its output."""
+            """Retain only observed cleanup state before HA removes its output."""
+            try:
+                idle = getattr(output.idle_timer, "idle", None)
+            except Exception:
+                idle = None
+            observer._cleanup_observation = {
+                "source": "quiet_timer" if observer.expiring else "ha_output",
+                "idle": idle if type(idle) is bool else None,
+            }
             observer.close()
             observer._cleanup()
 
@@ -111,9 +121,12 @@ class HlsViewActivity:
             self._awake()
 
     def diagnostic(self) -> dict[str, Any]:
-        """Return counters for this output, without tokens or viewer identities."""
-        return {"installed": not self._closed, "requests": self._requests,
-                "quiet_seconds": self._quiet_seconds, "expiring": self.expiring}
+        """Retain this output's last cleanup without inferring HA's removal cause."""
+        result = {"installed": not self._closed, "requests": self._requests,
+                  "quiet_seconds": self._quiet_seconds, "expiring": self.expiring}
+        if self._cleanup_observation is not None:
+            result["cleanup"] = dict(self._cleanup_observation)
+        return result
 
     def close(self) -> None:
         """Cancel the local quiet timer and restore this output's methods."""

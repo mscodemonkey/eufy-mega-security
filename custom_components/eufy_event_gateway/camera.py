@@ -313,7 +313,8 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
             try:
                 observer = getattr(self, "_hls_activity", None)
                 outputs = self.stream.outputs() if self.stream is not None else {}
-                if observer is not None and outputs.get("hls") is observer.output:
+                if observer is not None and (outputs.get("hls") is observer.output
+                        or self.stream is not None and self.stream is self._hls_idle_stream and not outputs):
                     activity = observer.diagnostic()
             except Exception:
                 pass
