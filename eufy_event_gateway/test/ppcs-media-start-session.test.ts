@@ -1345,3 +1345,40 @@ for (const enabled of [true, false]) {
     } finally { f.session.close(); }
   });
 }
+
+
+for (const result of [-108, -117, 0]) test(`exact T8210 HB3 startup result ${result} is retained without retry`, async context => {
+  const f = await peer(context, true, "T8210", "media", "T8030", undefined, 4, 7, { stationDeviceType: 18 });
+  try {
+    await f.negotiate();
+    f.ack(f.sent.at(-1)!.readUInt16BE(6));
+    const reply = Buffer.alloc(132); reply.writeInt32LE(result);
+    f.frame(1350, reply, 4, true);
+    assert.equal(f.session.stats.mediaStartResult, result);
+    assert.equal(f.session.stats.mediaStartLowPower, result === -117 ? 1 : 0);
+    reply.writeInt32LE(-119); f.frame(1350, reply, 4, true);
+    assert.equal(f.session.stats.mediaStartResult, result);
+    context.mock.timers.tick(10_000);
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    assert.equal(f.session.stats.mediaStopAttempts, 0);
+    assert.equal(f.session.stats.closeReason, "open");
+  } finally { f.session.close(); }
+});
+
+for (const variant of ["model", "type", "parent-type", "station", "channel", "purpose", "sign", "command", "short", "padding", "video", "not-result", "stopped"] as const) {
+  test(`T8210 startup scalar rejects the unqualified ${variant} response`, async context => {
+    const f = await peer(context, true, variant === "model" ? "T8210X" : "T8210",
+      variant === "purpose" ? "control" : "media", variant === "station" ? "T8010" : "T8030",
+      undefined, 4, variant === "type" ? 8 : 7, { stationDeviceType: variant === "parent-type" ? 0 : 18 });
+    try {
+      await f.negotiate();
+      const reply = Buffer.alloc(variant === "short" ? 4 : 132); reply.writeInt32LE(-108);
+      if (variant === "padding") reply[131] = 1;
+      if (variant === "video") f.video(4);
+      if (variant === "stopped") f.session.close();
+      f.frame(variant === "command" ? 1003 : 1350, reply, variant === "channel" ? 1 : 4,
+        variant !== "not-result", variant === "sign" ? 8 : 0);
+      assert.equal(f.session.stats.mediaStartResult, null);
+    } finally { f.session.close(); }
+  });
+}

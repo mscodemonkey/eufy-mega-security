@@ -3595,16 +3595,20 @@ export class FirstPartyPpcsSession {
       this.stats.frameShapes.push(shape);
     }
 
-    // The pinned app's P2PErrorCode defines -117 as POWER_LOW. This exact
-    // attached doorbell reply has a four-byte result and 128 zero padding bytes.
-    // Retain only that fact, without changing startup or retry decisions.
+    // The exact HB3 doorbell returns a four-byte result with 128 zero padding
+    // bytes. Preserve its first scalar as evidence, including the observed -108
+    // wait timeout. This does not authorize another start or change acceptance.
     if (usesT8210DirectMediaStop(this.#options.channel, this.#options)
       && this.#options.purpose !== "control" && this.#options.purpose !== "passive"
       && this.stats.mediaStartAttempts === 1 && this.stats.mediaStopAttempts === 0
       && this.stats.videoFrames === 0 && command === 1350 && frameChannel === this.#options.channel
       && signCode === 0 && header[14] === 1 && header[15] === 0 && payload.length === 132
-      && payload.readInt32LE(0) === -117 && payload.subarray(4).every(value => value === 0)) {
-      this.stats.mediaStartLowPower = 1;
+      && payload.subarray(4).every(value => value === 0)) {
+      const result = payload.readInt32LE(0);
+      if (result === -117) this.stats.mediaStartLowPower = 1;
+      if (this.#options.stationDeviceType === 18 && this.stats.mediaStartResult === null) {
+        this.stats.mediaStartResult = result;
+      }
     }
 
     // The reported T8442 failure carries this clear, zero-padded result shape.
