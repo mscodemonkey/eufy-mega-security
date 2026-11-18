@@ -134,6 +134,23 @@ class PlaybackSerializerTest(unittest.TestCase):
 class CameraPlaybackDiagnosticTest(unittest.TestCase):
     """Verify the camera adapter exposes metadata without touching playback."""
 
+    def test_closed_output_keeps_its_last_observation_only_on_the_owning_stream(self):
+        """A later replacement must never inherit a previous output's cleanup."""
+        import re
+
+        method = load_method("camera.py", "playback_diagnostic", {"serialize_stream": MODULE.serialize_stream, "re": re})
+        stream = SimpleNamespace(outputs=lambda: {})
+        observed = {"installed": False, "requests": 7, "cleanup": {"source": "ha_output", "idle": True}}
+        camera = SimpleNamespace(camera={"model": "T8600", "deviceType": 24}, stream=stream,
+                                 _hls_idle_stream=stream, _native_video=True, _short_hls_idle=False,
+                                 _hls_activity=SimpleNamespace(output=object(), diagnostic=lambda: observed))
+        self.assertEqual(method(camera)["hls_activity"], observed)
+        camera._hls_idle_stream = object()
+        self.assertEqual(method(camera)["hls_activity"], {"installed": False})
+        camera.stream = None
+        camera._hls_idle_stream = None
+        self.assertEqual(method(camera)["hls_activity"], {"installed": False})
+
     def test_valid_and_invalid_metadata_never_issues_a_url(self):
         """Keep malformed inventory private and preserve the cached stream identity."""
         import re

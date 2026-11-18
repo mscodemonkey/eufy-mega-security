@@ -136,6 +136,26 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(other.idle_timer.awake, original)
         self.assertEqual(other.idle_timer.events, [])
 
+    async def test_output_cleanup_retains_observed_timer_state_without_inventing_a_cause(self):
+        """Separate an HA cleanup callback from our own quiet expiry."""
+        self.output.idle_timer.idle = True
+        self.output.idle_timer.awake()
+        self.output.cleanup()
+        result = self.observer.diagnostic()
+        self.assertEqual(result["cleanup"], {"source": "ha_output", "idle": True})
+        self.assertEqual(result["requests"], 1)
+        self.assertFalse(result["installed"])
+        self.assertEqual(self.output.cleaned, 1)
+
+    async def test_quiet_cleanup_and_observer_detachment_remain_distinct(self):
+        """An explicit observer close is not evidence that HA removed an output."""
+        self.observer.expiring = True
+        self.output.cleanup()
+        self.assertEqual(self.observer.diagnostic()["cleanup"], {"source": "quiet_timer", "idle": None})
+        other = MODULE.HlsViewActivity.install(output(), lambda: True)
+        other.close()
+        self.assertNotIn("cleanup", other.diagnostic())
+
 
 if __name__ == "__main__":
     unittest.main()
