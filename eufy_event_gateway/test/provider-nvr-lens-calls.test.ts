@@ -1,7 +1,7 @@
 /**
- * Exercises native pane call admission through public provider methods.
- * Synthetic inventory and session mocks own all effects. The budget is the
- * gateway's own count; nothing here qualifies the NVR's real call limit.
+ * Exercises native pane and multi-view call admission through public provider
+ * methods. Synthetic inventory and session mocks own all effects. The budget is
+ * the gateway's own count; nothing here qualifies the NVR's real call limit.
  */
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -17,17 +17,23 @@ import { NvrRtcSession } from "../src/stream/nvr-rtc-session.js";
 import { NvrTrialError } from "../src/stream/nvr-protocol.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 
-type Options = { sensor?: unknown; camera: string; maximumLifetimeMilliseconds?: number | null; liveControls?: boolean; audio?: boolean };
+type Options = { sensor?: unknown; cells?: unknown; camera: string; maximumLifetimeMilliseconds?: number | null; liveControls?: boolean; audio?: boolean };
 
-/** Two S4s and one E41 behind one owned NVR, with every session recorded. */
-async function fixture(context: TestContext) {
+/** A synthetic camera behind the NVR, on one channel. */
+const child = (serial: string, channel: number, model: string, type: number) => ({ device_sn: serial, parent_sn: "synthetic-nvr",
+  device_channel: channel, device_model: model, device_type: type, category: "eufy_security", member: { admin_user_id: "synthetic-owner" } });
+
+/** Seven cameras on channels 0 to 6 and a doorbell on 7, beside the default S4s and E41 on 8 to 10. */
+const allChannels = [0, 1, 2, 3, 4, 5, 6].map(channel => child(`synthetic-cam${channel}`, channel, "T8416", 104))
+  .concat(child("synthetic-doorbell", 7, "T8214", 94));
+
+/** Two S4s and one E41 behind one owned NVR, and any other cameras given, with every session recorded. */
+async function fixture(context: TestContext, others: ReturnType<typeof child>[] = []) {
   const directory = await mkdtemp(join(tmpdir(), "nvr-lens-calls-"));
   const owner = { admin_user_id: "synthetic-owner" };
   const raw = { devices: [
     { device_sn: "synthetic-nvr", device_model: "T8N00", device_type: 300, category: "eufy_security", member: owner },
-    { device_sn: "synthetic-s4", parent_sn: "synthetic-nvr", device_channel: 9, device_model: "T8E00", device_type: 301, category: "eufy_security", member: owner },
-    { device_sn: "synthetic-s4b", parent_sn: "synthetic-nvr", device_channel: 10, device_model: "T8E00", device_type: 301, category: "eufy_security", member: owner },
-    { device_sn: "synthetic-e41", parent_sn: "synthetic-nvr", device_channel: 8, device_model: "T8416", device_type: 104, category: "eufy_security", member: owner },
+    child("synthetic-s4", 9, "T8E00", 301), child("synthetic-s4b", 10, "T8E00", 301), child("synthetic-e41", 8, "T8416", 104), ...others,
   ] };
   const started: Options[] = [], closed: Options[] = [], parkedLog: string[] = [], switched: string[] = [];
   let startFailure: Error | null = null, parkFailure: Error | null = null;
@@ -43,6 +49,8 @@ async function fixture(context: TestContext) {
     const output = new PassThrough(); output.on("error", () => {}); outputs.set(session, output); return output;
   };
   const optionsOf = (session: NvrRtcSession): Options => (session as unknown as { options: Options }).options;
+  const tag = (options: Options): string => `${options.camera}:${typeof options.sensor === "object" && options.sensor
+    ? `stitch${(options.sensor as { mode: number }).mode}` : String(options.sensor)}`;
   context.mock.getter(NvrRtcSession.prototype, "output", function (this: NvrRtcSession) { return outputs.get(this) ?? fresh(this); });
   context.mock.getter(NvrRtcSession.prototype, "switchable", function (this: NvrRtcSession) { return live.has(this); });
   context.mock.getter(NvrRtcSession.prototype, "idle", function (this: NvrRtcSession) { return parked.has(this); });
@@ -62,7 +70,7 @@ async function fixture(context: TestContext) {
     old?.end();
   });
   context.mock.method(NvrRtcSession.prototype, "switchCamera", async function (this: NvrRtcSession, target: Options) {
-    label.set(this, `${target.camera}:${String(target.sensor)}`); switched.push(label.get(this)!);
+    label.set(this, tag(target)); switched.push(label.get(this)!);
     parked.delete(this); live.add(this);
     const old = outputs.get(this); fresh(this); old?.end();
     return 100;
@@ -78,7 +86,7 @@ async function fixture(context: TestContext) {
   context.mock.method(MegaClient.prototype, "nvrSignallingContext", async () => ({ host: "security-smart-ie.eufylife.com", region: "IE", authToken: "synthetic", gtoken: "synthetic", sign: "synthetic" }));
   context.mock.method(NvrRtcSession.prototype, "start", async function (this: NvrRtcSession) {
     if (startFailure) throw startFailure;
-    started.push(optionsOf(this)); label.set(this, `${optionsOf(this).camera}:${String(optionsOf(this).sensor)}`); live.add(this);
+    started.push(optionsOf(this)); label.set(this, tag(optionsOf(this))); live.add(this);
     order.push(`placed ${label.get(this)!}`);
   });
   const hungUp = new Set<NvrRtcSession>(), hungUpLabels: string[] = [];
@@ -95,7 +103,9 @@ async function fixture(context: TestContext) {
   context.mock.method(NvrRtcSession.prototype, "initialLiveSettings", async () => ({ night: null, quality: null, tracking: null }));
   context.mock.method(NvrRtcSession.prototype, "readLiveSettings", async () => ({ night: null, quality: null, tracking: null }));
   const state = new GatewayState();
-  const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value) },
+  const stations: Parameters<ProviderEvents["station"]>[0][] = [];
+  const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => state.registerCamera(value),
+    station: (value: Parameters<ProviderEvents["station"]>[0]) => { stations.push(value); } },
     { get: (target, key) => Reflect.get(target, key) ?? (() => {}) }) as unknown as ProviderEvents;
   const provider = new EufyProvider({ username: "synthetic", password: "synthetic", country: "AU", persistentDirectory: directory,
     maxStreamSeconds: 120, normalNvrLive: true, experimentalNvrLive: true, experimentalModelControls: true,
@@ -108,14 +118,14 @@ async function fixture(context: TestContext) {
     yieldable: () => false, settling: () => false });
   await provider.start(events);
   context.after(async () => { letGoHangUps(); await provider.close(); await rm(directory, { recursive: true, force: true }); });
-  const sensors = (list: Options[]) => list.map(options => `${options.camera}:${String(options.sensor)}`);
+  const sensors = (list: Options[]) => list.map(tag);
   const holdHangUps = (): (() => void) => {
     let letGo = (): void => {};
     hangUpHold = new Promise<void>(resolve => { letGo = resolve; });
     letGoHangUps = () => { hangUpHold = null; letGo(); };
     return letGoHangUps;
   };
-  return { provider, state, started, closed, sensors, parkedLog, switched, hungUpLabels, order, holdHangUps,
+  return { provider, state, stations, started, closed, sensors, parkedLog, switched, hungUpLabels, order, holdHangUps,
     failParks: (error: Error | null) => { parkFailure = error; }, failStarts: (error: Error | null) => { startFailure = error; },
     setActive: (value: boolean) => { active = value; }, setRecording: (serial: string) => { recording.add(serial); } };
 }
@@ -371,5 +381,142 @@ for (const exit of ["close", "start_failure", "call_lost", "shutdown"] as const)
     await again.close();
     const release = value.provider.reserveNvrLiveTrial("synthetic-e41", new AbortController().signal);
     await release();
+  });
+}
+
+const multiView = { mode: 3, width: 3840, height: 2160 };
+
+test("the multi-view is one 3x3 call at 3840x2160 of the first nine cameras the NVR can stitch, in channel order", async context => {
+  const value = await fixture(context, allChannels);
+  assert.equal(value.provider.nvrMultiViewAdmitted("synthetic-nvr"), true);
+  const call = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  assert.equal(value.started.length, 1, "one call for the whole grid");
+  const options = value.started[0]!;
+  const channels = [0, 1, 2, 3, 4, 5, 6, 8, 9];
+  assert.deepEqual(options.sensor, { ...multiView, cells: channels.map(channel => ({ channel, sensor: 0 })) },
+    "the doorbell on 7 is left out, the S4 on 9 shows its Fixed lens, and the tenth camera (the second S4) waits for PR 2's pages");
+  assert.deepEqual(options.cells, channels.map(channel => {
+    const serial = channel === 8 ? "synthetic-e41" : channel === 9 ? "synthetic-s4" : `synthetic-cam${channel}`;
+    return { camera: serial, channel, cameraType: channel === 9 ? 301 : 104 };
+  }), "each cell's camera is checked against the NVR's camera list");
+  assert.equal(options.camera, "synthetic-cam0");
+  assert.ok(options.maximumLifetimeMilliseconds === null && options.liveControls === false && options.audio === false,
+    "viewer-owned, video only, no controls");
+  await call.close();
+  assert.equal(value.closed.length, 1);
+});
+
+test("the NVR's station state says whether it offers the multi-view", async context => {
+  const value = await fixture(context, allChannels);
+  const nvr = value.stations.filter(station => station.serial === "synthetic-nvr").at(-1);
+  assert.equal(nvr?.nvrMultiViewSupported, true);
+});
+
+test("an NVR with fewer than two cameras it can stitch offers no multi-view, and asking places no call", async context => {
+  const value = await fixture(context);
+  assert.equal(value.provider.nvrMultiViewAdmitted("synthetic-nvr"), true, "two S4s and an E41 make a grid of three");
+  assert.equal(value.provider.nvrMultiViewAdmitted("synthetic-s4"), false, "a camera has no multi-view");
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-s4"), admission);
+  assert.equal(value.started.length, 0);
+});
+
+test("the multi-view counts as one call: it fits beside both panes, and a view past the budget is refused before any call", async context => {
+  const value = await fixture(context, allChannels);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  const grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  assert.deepEqual(value.sensors(value.started), ["synthetic-s4:0", "synthetic-s4:1", "synthetic-cam0:stitch3"]);
+  await assert.rejects(value.provider.startStream("synthetic-e41"), admission);
+  await assert.rejects(value.provider.openNvrLensCall("synthetic-s4b", "fixed"), admission);
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), admission);
+  assert.equal(value.started.length, 3, "nothing past the budget placed a call");
+  assert.equal(value.closed.length, 0, "and nothing admitted was touched");
+  await Promise.all([fixed.close(), movable.close(), grid.close()]);
+});
+
+test("beside both panes and a view, the multi-view is refused before any call, and takes nothing from them", async context => {
+  const value = await fixture(context, allChannels);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  await value.provider.startStream("synthetic-e41"); await settle();
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), admission);
+  assert.equal(value.started.length, 3);
+  assert.equal(value.closed.length + value.parkedLog.length, 0, "no pane or view yielded");
+  await Promise.all([fixed.close(), movable.close(), value.provider.stopStream("synthetic-e41")]);
+});
+
+test("closing the multi-view parks its call beside a pane, and the panes' and multi-view's calls are reused both ways", async context => {
+  const value = await fixture(context, allChannels);
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  const grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  await grid.close();
+  assert.deepEqual(value.parkedLog, ["synthetic-cam0:stitch3"], "a hang-up would end the pane's call too");
+  assert.equal(value.closed.length, 0);
+  assert.equal(movable.output.readableEnded || movable.output.destroyed, false, "the pane carries on");
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  assert.equal(value.started.length, 2, "the pane reused the multi-view's parked call");
+  assert.deepEqual(value.switched, ["synthetic-s4:0"]);
+  await fixed.close();
+  const again = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  assert.equal(value.started.length, 2, "and the multi-view took the pane's parked call back");
+  assert.deepEqual(value.switched, ["synthetic-s4:0", "synthetic-cam0:stitch3"]);
+  await again.close();
+  assert.equal(value.closed.length, 0, "closing the multi-view beside a pane never hangs up");
+  await movable.close(); await settle();
+  assert.equal(value.closed.length, 2, "the last call in use hung up with the parked one");
+});
+
+test("a pane closing beside the multi-view parks, and the multi-view closing last hangs up every call together", async context => {
+  const value = await fixture(context, allChannels);
+  const grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  const movable = await value.provider.openNvrLensCall("synthetic-s4", "movable");
+  await Promise.all([fixed.close(), movable.close()]);
+  assert.deepEqual(value.parkedLog.sort(), ["synthetic-s4:0", "synthetic-s4:1"]);
+  assert.equal(grid.output.readableEnded || grid.output.destroyed, false, "the multi-view carries on");
+  await grid.close(); await settle();
+  assert.deepEqual(value.hungUpLabels.sort(), ["synthetic-cam0:stitch3", "synthetic-s4:0", "synthetic-s4:1"]);
+});
+
+test("the multi-view waits for the NVR's last hang-up to finish, and a pane waits for the multi-view's", async context => {
+  const value = await fixture(context, allChannels);
+  const fixed = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  let letGo = value.holdHangUps();
+  let closing = fixed.close(); await settle();
+  const opening = value.provider.openNvrMultiViewCall("synthetic-nvr");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 1, "no call is placed while the pane's hang-up is running");
+  letGo(); await closing;
+  const grid = await opening;
+  letGo = value.holdHangUps();
+  closing = grid.close(); await settle();
+  const pane = value.provider.openNvrLensCall("synthetic-s4", "movable");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(value.started.length, 2, "no call is placed while the multi-view's hang-up is running");
+  letGo(); await closing;
+  await (await pane).close();
+  assert.deepEqual(value.order, ["placed synthetic-s4:0", "hung up synthetic-s4:0", "placed synthetic-cam0:stitch3",
+    "hung up synthetic-cam0:stitch3", "placed synthetic-s4:1", "hung up synthetic-s4:1"]);
+});
+
+for (const exit of ["close", "start_failure", "call_lost", "shutdown"] as const) {
+  test(`the multi-view call is hung up and released on ${exit}`, async context => {
+    const value = await fixture(context, allChannels);
+    if (exit === "start_failure") {
+      value.failStarts(new NvrTrialError("video"));
+      await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), (error: unknown) => error instanceof NvrTrialError && error.stage === "video");
+      value.failStarts(null);
+    } else {
+      const call = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+      if (exit === "close") { await call.close(); await call.close(); }
+      if (exit === "call_lost") { call.output.destroy(new NvrTrialError("video")); await settle(); }
+      if (exit === "shutdown") { await value.provider.close(); assert.equal(value.closed.length, 1); return; }
+    }
+    await settle();
+    assert.equal(value.closed.length, 1, "exactly one hang-up");
+
+    // The reservation is gone: the multi-view and an exclusive lease are both admitted again.
+    await (await value.provider.openNvrMultiViewCall("synthetic-nvr")).close();
+    await value.provider.reserveNvrLiveTrial("synthetic-e41", new AbortController().signal)();
   });
 }

@@ -125,7 +125,8 @@ viewers close, and Home Assistant's retry places fresh calls.
 
 With the mode observer connected, the T8N00 answered two more calls and left a
 third unanswered (one NVR, twice). The gateway counts its own calls to each NVR
-and keeps them to three: the two panes and one ordinary view. Parked calls count
+and keeps them to three: the two panes and one ordinary view, or the
+[multi-view camera](#multi-view-camera) in place of one of them. Parked calls count
 too, but a new pane or view takes a parked call first, so a parked call never
 causes a refusal. The observer never adds a fourth, because the first pane or
 view takes its call or closes it, and it stays off until every call, parked ones
@@ -182,6 +183,63 @@ other runs, release of the call on every exit, the observer handover and the
 compatible fallback. If a pane closes unexpectedly, share only
 `native_lens_view_closed`, `nvr_lens_call_failed` or `shared_lens_view_closed`,
 keeping images and video private.
+
+## Multi-view camera
+
+Each owned T8N00/type300 has one optional **Multi-view** camera entity on the
+NVR's own HA device. It starts disabled in Home Assistant, and needs the existing
+experimental NVR live option and normal NVR live view, as the NVR's cameras do.
+It is offered only when the NVR has at least two cameras it can stitch.
+
+The NVR draws the multi-view itself: one live start with `stitch_mode` 3 (a 3x3
+grid, eufy's `Std_3X3`), a list of channels, and a picture size of 3840x2160, so
+each cell is 1280x720. The NVR sends that as one H.265 stream on one call,
+which the gateway passes through unconverted, as it does a pane's lens. 3840x2160
+is the largest 3x3 within H.265 level 5.1, the level browsers, phones and TV
+boxes generally decode. On one T8N00 it ran at 20 fps in real time, about
+0.76 Mbit/s, using 33 of the NVR's 240 units of encoder capacity.
+
+The cells hold the NVR's cameras that play natively in Home Assistant, in
+channel order, up to nine. Any further cameras are left out. An S4 shows its
+Fixed lens. A cell with no camera stays blank, and a camera that is switched off
+shows the NVR's own "turned off" card. The T8214 (E340) doorbell is left out: it
+plays on its own as both its lenses stacked, but in every grid and stack tried
+it left its cell on "Please wait…", with either lens. The cells are fixed when
+the call starts, so a camera added, removed or rebound ends the call, and Home
+Assistant's retry opens it with the new set.
+
+The multi-view's call is admitted, shared and closed as a pane's call is. It
+counts as one call in the budget above. It never gives its call to a pane or
+view and never takes one, apart from the mode observer's listening call or a
+parked call. Viewers share the one call and join from its current keyframe. When
+its last viewer has gone, the call is stopped after the idle grace, and parked if
+another gateway call on that NVR is in use, so closing the multi-view leaves the
+panes and views playing, and the other way round. A request past the budget is
+refused before a call is placed (`nvr_multiview_call_refused reason=call_budget`):
+with both panes and the multi-view open, a further ordinary view is refused.
+The gateway's log lines are `nvr_multiview_call_completed`,
+`nvr_multiview_call_failed`, `nvr_multiview_call_observer_used`,
+`nvr_multiview_call_idle_used` and `native_multiview_view_closed`, each with the
+number of cells and no camera names.
+
+With the integration's H.264 compatibility option on, the multi-view camera is
+unavailable. A 3840x2160 H.264 conversion is beyond the hardware the app
+typically runs on, and the multi-view never falls back to a converted route.
+
+The gateway route is `/api/stations/<NVR>/live-multiview-native.annexb`, signed
+like the native camera routes; `POST /api/stations/<NVR>/stream-token` with
+`{"profile":"native"}` returns it. The station's `nvrMultiViewSupported` field
+says whether the multi-view is offered.
+
+The stitched start is general: the layout, the cells with their lenses, and the
+size are parameters, so other layouts (a 2x2 grid, or two or three pictures
+stacked) use the same path. Only the 3x3 multi-view camera uses it so far.
+
+Local tests cover the stitched start for several layouts, the cell rule and the
+doorbell, admission within the budget beside both panes and a view, refusal past
+it with no call placed, viewers sharing one call, parking and the hang-up hold
+with the panes, the compatibility behaviour, and release of the call on every
+exit.
 
 ## Retry while an unused call is closing
 

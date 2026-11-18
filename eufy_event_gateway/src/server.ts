@@ -460,7 +460,11 @@ export class GatewayServer {
         && segments[3] === "general-rtc-prepare";
       if (generalTrial || generalPreparation) response.setHeader("Cache-Control", "no-store");
       if (segments[0] === "api" && this.config.apiToken) {
-        const streamAuthorized =
+        const multiViewAuthorized = request.method === "GET" && segments[1] === "stations"
+          && segments[3] === "live-multiview-native.annexb" && segments.length === 4
+          && url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
+          && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken);
+        const streamAuthorized = multiViewAuthorized ||
           request.method === "GET" &&
           segments[1] === "cameras" &&
           (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-main.h264" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
@@ -1344,6 +1348,18 @@ export class GatewayServer {
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "stations" && segments[3] === "stream-token" && segments.length === 4) {
+        return await this.#multiViewStreamToken(request, segments[2]!, response);
+      }
+      if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments[3] === "live-multiview-native.annexb" && segments.length === 4) {
+        const serial = segments[2]!;
+        if (!this.state.hasStation(serial)) return json(response, 404, { error: "HomeBase not found" });
+        if (this.state.getStation(serial).nvrMultiViewSupported !== true || !this.provider.nvrMultiViewAdmitted?.(serial)) {
+          return json(response, 409, { error: "The multi-view is unavailable" });
+        }
+        logger.info("camera_media_request", `model=${safeCameraModel(this.state.getStation(serial).model)} operation=multiview_native`);
+        return await this.streams.addNativeMultiViewClient(serial, response);
+      }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "stations" && segments.length === 4) {
         return await this.#stationCommand(request, segments[2]!, segments[3]!, response);
       }
@@ -1865,6 +1881,26 @@ export class GatewayServer {
     const path = `/api/cameras/${encodeURIComponent(serial)}/${media}${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
     if (profile === "native" || lens) response.setHeader("Cache-Control", "no-store");
     return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}), ...(lens ? { lens } : {}) });
+  }
+
+  /**
+   * Sign one NVR's multi-view route. The multi-view is native only: the NVR
+   * stitches one H.265 picture, which is passed through unconverted.
+   */
+  async #multiViewStreamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let profile: ViewerProfile | undefined, audio: "on" | "off" | undefined, lens: SharedLens | "main" | undefined;
+    try { ({ profile, audio, lens } = await readStreamProfile(request)); }
+    catch { return json(response, 400, { error: "Invalid stream profile request" }); }
+    if (profile !== "native" || audio === "on" || lens) return json(response, 400, { error: "The multi-view is native video only" });
+    if (!this.state.hasStation(serial)) return json(response, 404, { error: "HomeBase not found" });
+    if (this.state.getStation(serial).nvrMultiViewSupported !== true || !this.provider.nvrMultiViewAdmitted?.(serial)) {
+      return json(response, 409, { error: "The multi-view is unavailable" });
+    }
+    const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
+    const token = this.config.apiToken ? createNativeStreamToken(serial, expiresAt, this.config.apiToken) : null;
+    const path = `/api/stations/${encodeURIComponent(serial)}/live-multiview-native.annexb${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
+    response.setHeader("Cache-Control", "no-store");
+    return json(response, 200, { path, expiresAt, profile: "native", view: "multiview" });
   }
 
   async #captureSnapshot(serial: string, response: ServerResponse): Promise<void> {

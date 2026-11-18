@@ -114,3 +114,53 @@ test("native pane tokens name the lens's own unconverted route and need the nati
     assert.equal(native.length, 2);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("the multi-view token names the NVR's own unconverted route, needs the native signature and admission, and is native only", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "multiview-http-")), state = new GatewayState();
+  const nvr = { serial: "station", name: "Synthetic NVR", model: "T8N00", firmware: null, available: true, cameraRouteReady: false,
+    controlsSupported: false, guardModeControlSupported: false, stateReadSupported: false, homeBaseSirenControlSupported: false, connected: false,
+    guardMode: null, guardModeNames: {}, effectiveMode: null, alarmActive: null, alarmVolume: null, promptVolume: null, alarmTone: null,
+    storageSupported: [], storage: { sd: null, emmc: null, hdd: null }, nvrMultiViewSupported: true };
+  state.registerStation(nvr);
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T8E00", stationSerial: "station", streamSupported: true, doorbellSupported: false });
+  let admitted = true;
+  const opened: string[] = [];
+  const streams = {
+    addNativeMultiViewClient: async (serial: string, response: import("node:http").ServerResponse) => {
+      opened.push(serial); response.writeHead(200); response.end("grid");
+    },
+  } as unknown as LiveStreamManager;
+  const provider = { nvrMultiViewAdmitted: (serial: string) => admitted && serial === "station" } as unknown as CameraProvider;
+  const snapshots = new SnapshotStore(directory);
+  await snapshots.initialize();
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture" }, state, snapshots, streams, provider, null);
+  try {
+    await server.listen(); const base = `http://127.0.0.1:${server.port}/api/stations`;
+    const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
+    const token = async (body: string, serial = "station") => await fetch(`${base}/${serial}/stream-token`, { method: "POST", headers, body });
+    for (const body of ['{"profile":"compatible"}', '{}', '{"profile":"native","audio":"on"}', '{"profile":"native","lens":"fixed"}']) {
+      assert.equal((await token(body)).status, 400, body);
+    }
+    assert.equal((await token('{"profile":"native"}', "test")).status, 404, "a camera has no multi-view");
+    const response = await token('{"profile":"native","audio":"off"}');
+    assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+    const result = await response.json();
+    assert.deepEqual([result.profile, result.view], ["native", "multiview"]);
+    const url = new URL(result.path, base);
+    assert.equal(url.pathname, "/api/stations/station/live-multiview-native.annexb");
+    assert.match(url.searchParams.get("access_token") ?? "", /^native\./);
+    assert.equal(await (await fetch(url)).text(), "grid");
+    const compatibleToken = createStreamToken("station", Math.floor(Date.now() / 1000) + 60, "fixture");
+    assert.equal((await fetch(`${base}/station/live-multiview-native.annexb?access_token=${compatibleToken}`)).status, 401);
+    const otherToken = createNativeStreamToken("test", Math.floor(Date.now() / 1000) + 60, "fixture");
+    assert.equal((await fetch(`${base}/station/live-multiview-native.annexb?access_token=${otherToken}`)).status, 401, "a camera's token is not the NVR's");
+    assert.equal((await fetch(`${base}/station/live-multiview-native.annexb`)).status, 401);
+    admitted = false;
+    const signed = createNativeStreamToken("station", Math.floor(Date.now() / 1000) + 60, "fixture");
+    assert.equal((await fetch(`${base}/station/live-multiview-native.annexb?access_token=${signed}`)).status, 409);
+    assert.equal((await token('{"profile":"native"}')).status, 409);
+    admitted = true; state.registerStation({ ...nvr, nvrMultiViewSupported: false });
+    assert.equal((await fetch(`${base}/station/live-multiview-native.annexb?access_token=${signed}`)).status, 409);
+    assert.deepEqual(opened, ["station"]);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

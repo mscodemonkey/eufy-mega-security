@@ -12,6 +12,8 @@ entity:
       name: Main lens (Experimental)
     shared_fixed:
       name: Fixed lens
+    multiview:
+      name: Multi-view
     shared_movable:
       name: Movable lens
     event_image:

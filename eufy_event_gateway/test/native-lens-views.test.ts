@@ -1,5 +1,5 @@
 /**
- * Tests native pane ownership with synthetic calls and viewers only.
+ * Tests native pane and multi-view ownership with synthetic calls and viewers only.
  * The fake provider call owns the bytes and hang-up count. Nothing here
  * qualifies NVR hardware, lens order or the NVR's call limit.
  */
@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { GatewayState } from "../src/domain/gateway-state.js";
+import { initialHomeBaseState } from "../src/provider/eufy-provider.js";
 import { LiveStreamManager, VideoParameterSetCache } from "../src/stream/live-stream-manager.js";
 import { NativeLensView, type NativeLensCloseReason, type NvrLensCall } from "../src/stream/native-lens-views.js";
 import type { VideoViewerResponse } from "../src/stream/live-transport-muxer.js";
@@ -147,4 +148,44 @@ test("the manager gives each lens its own call, and closing one pane leaves the 
     await assert.rejects(manager.addNativeLensClient("test", "movable", new Viewer()), /Both view/);
   } finally { await manager.close(); }
   assert.equal(calls.get("movable")!.closes(), 1, "shutdown hangs up every pane call");
+});
+
+test("the multi-view's viewers share one call of their own, and closing it leaves a pane running", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState();
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T8E00", stationSerial: "station", streamSupported: true,
+    doorbellSupported: false, nvrLiveControlsSupported: true, nvrSelectedView: 2 });
+  const station = { ...initialHomeBaseState({ serial: "station", name: "Synthetic NVR", model: "T8N00", parentSerial: "", deviceType: 300,
+    category: "eufy_security", channel: null, p2pDid: null, p2pConnection: null, localAddress: null, cipherId: null, adminUserId: null,
+    userName: null, firmware: null, paramTypes: [], reads: {} } as never, false), nvrMultiViewSupported: true };
+  state.registerStation(station);
+  const grids: ReturnType<typeof callFixture>[] = [], panes: ReturnType<typeof callFixture>[] = [];
+  let starts = 0;
+  const manager = new LiveStreamManager(state, {} as never, {
+    async startStream() { starts++; }, async stopStream() {},
+    async openNvrLensCall() { const fake = callFixture(); panes.push(fake); return fake.call; },
+    async openNvrMultiViewCall(serial: string) { assert.equal(serial, "station"); const fake = callFixture(); grids.push(fake); return fake.call; },
+  }, 10_000);
+  const closed: unknown[] = [];
+  manager.on("native-multiview-closed", detail => closed.push(detail));
+  try {
+    const first = new Viewer(), second = new Viewer(), pane = new Viewer();
+    await Promise.all([manager.addNativeMultiViewClient("station", first), manager.addNativeMultiViewClient("station", second),
+      manager.addNativeLensClient("test", "fixed", pane)]);
+    assert.equal(grids.length, 1, "every multi-view viewer shares one call");
+    assert.equal(panes.length, 1, "the pane has its own call");
+    assert.equal(starts, 0, "neither opens a camera's ordinary source");
+    grids[0]!.output.write(keyframe); panes[0]!.output.write(keyframe); await settle();
+    assert.ok(first.chunks.length && second.chunks.length, "both viewers got the stitched picture");
+    assert.equal(first.contentType, "video/h265", "unconverted");
+    first.destroy(); second.destroy(); await settle();
+    context.mock.timers.tick(10_000); await settle();
+    assert.equal(grids[0]!.closes(), 1, "hung up once after the idle grace");
+    assert.equal(panes[0]!.closes(), 0);
+    assert.deepEqual(closed, [{ model: "T8N00", reason: "clients_closed" }]);
+    state.registerStation({ ...station, nvrMultiViewSupported: false });
+    await assert.rejects(manager.addNativeMultiViewClient("station", new Viewer()), /multi-view is unavailable/);
+    assert.equal(grids.length, 1, "a withdrawn multi-view opens no call");
+  } finally { await manager.close(); }
+  assert.equal(panes[0]!.closes(), 1);
 });

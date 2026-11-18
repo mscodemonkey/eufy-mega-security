@@ -406,6 +406,12 @@ export interface HomeBaseState {
   /** Mark these separate volume controls as an unconfirmed HomeBase 2 trial. */
   readonly volumeControlsExperimental?: boolean;
 
+  /**
+   * Whether this NVR offers its multi-view camera: one stitched native picture
+   * of the cameras it can carry. Absent from gateways and stations without one.
+   */
+  readonly nvrMultiViewSupported?: boolean;
+
   /** Whether the station may receive confirmed guard-mode writes. */
   readonly guardModeControlSupported: boolean;
 

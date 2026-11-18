@@ -55,7 +55,7 @@ from homeassistant.util import dt as dt_util
 from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
-from .entity import EufyGatewayEntity
+from .entity import EufyGatewayEntity, EufyStationEntity
 from .const import CONF_H264_COMPATIBILITY, CONF_SHORT_HLS_IDLE, CONF_FAST_NATIVE_HLS, DOMAIN
 from .playback_diagnostics import serialize_stream
 from .hls_activity import HlsViewActivity
@@ -119,6 +119,7 @@ async def async_setup_entry(
     known: set[str] = set()
     known_lenses: set[str] = set()
     known_main_lenses: set[str] = set()
+    known_multiviews: set[str] = set()
     live_modes: dict[str, bool] = {}
     reload_pending = False
     registry = er.async_get(hass)
@@ -160,6 +161,14 @@ async def async_setup_entry(
                 known_main_lenses.add(serial)
                 async_add_entities([EufyGatewayMainLensCamera(coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True)])
+
+        for serial, station in coordinator.stations.items():
+
+            # Only a gateway that offers the multi-view reports the field, true or false.
+            if serial not in known_multiviews and isinstance(station.get("nvrMultiViewSupported"), bool):
+                known_multiviews.add(serial)
+                async_add_entities([EufyGatewayMultiViewCamera(coordinator, serial,
+                    h264_compatibility=entry.options.get(CONF_H264_COMPATIBILITY) is True)])
 
         for serial, camera in coordinator.cameras.items():
             if serial not in known_lenses and _shared_lens_profile(camera):
@@ -903,6 +912,84 @@ class EufyGatewaySharedLensCamera(EufyGatewayCamera):
     async def async_record_clip(self, filename: str, duration: int) -> None:
         """Refuse the full-source gateway clip route for a pane-labelled recording."""
         raise HomeAssistantError("Use camera.record to record this shared lens")
+
+
+class EufyGatewayMultiViewCamera(EufyStationEntity, Camera):
+    """Own one optional multi-view camera on an NVR's existing HA device.
+
+    The gateway has the NVR stitch up to nine of its cameras into one H.265
+    picture on one NVR call, shared by every viewer and passed through
+    unconverted. HA's stream worker reads it like a native camera. With H.264
+    compatibility on it is unavailable, since nothing converts it.
+    """
+
+    _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "multiview"
+    _attr_content_type = "image/jpeg"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str, *, h264_compatibility: bool = False) -> None:
+        """Bind one NVR's multi-view until the next entry reload."""
+        EufyStationEntity.__init__(self, coordinator, serial)
+        Camera.__init__(self)
+        self._attr_unique_id = f"{serial}_multiview_camera"
+        self._h264_compatibility = h264_compatibility
+        self._stream_source_refreshing = False
+        self._placeholder: bytes | None = None
+
+        # Raw video carries no timestamps HA can use, so it times frames on arrival.
+        self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
+
+    @property
+    def available(self) -> bool:
+        """Offer the multi-view only while the gateway admits it and no conversion is asked for."""
+        return (super().available and self.coordinator.last_update_success
+                and self.station.get("nvrMultiViewSupported") is True and not self._h264_compatibility)
+
+    @property
+    def supported_features(self) -> CameraEntityFeature:
+        """Stream only while the multi-view is available."""
+        return CameraEntityFeature.STREAM if self.available else CameraEntityFeature(0)
+
+    async def stream_source(self) -> str | None:
+        """Return a short-lived signed URL for the NVR's multi-view."""
+        if not self.available:
+            return None
+        return await self.coordinator.client.multiview_stream_url(self.serial)
+
+    async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes:
+        """Show the waiting picture: the grid has no retained still, and a still would need a call."""
+        if self._placeholder is None:
+            self._placeholder = await self.hass.async_add_executor_job(
+                Path(__file__).with_name("waiting-image.jpg").read_bytes)
+        return self._placeholder
+
+    async def _async_get_supported_webrtc_provider(self, fn: Any) -> None:
+        """Keep the expiring gateway URL on HA's renewing HLS worker, as the cameras do."""
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """Renew the stream credentials while a stream has a consumer."""
+        await super().async_added_to_hass()
+        self.async_on_remove(async_track_time_interval(
+            self.hass, self._async_refresh_stream_source, STREAM_SOURCE_REFRESH_INTERVAL))
+
+    async def _async_refresh_stream_source(self, now: datetime) -> None:
+        """Store a fresh URL for HA's next reconnect, without restarting a running view."""
+        del now
+        stream = self.stream
+        if self.hass is None or stream is None or self._stream_source_refreshing:
+            return
+        if not stream.outputs() and not stream.dynamic_stream_settings.preload_stream:
+            return
+        self._stream_source_refreshing = True
+        try:
+            source = await self.coordinator.client.multiview_stream_url(self.serial)
+            if self.hass is not None and self.stream is stream:
+                stream.source = source
+        except GatewayClientError:
+            _LOGGER.debug("Multi-view URL renewal failed, keeping the previous URL")
+        finally:
+            self._stream_source_refreshing = False
 
 
 class EufyGatewayMainLensCamera(EufyGatewayCamera):

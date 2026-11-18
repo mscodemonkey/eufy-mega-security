@@ -12,6 +12,8 @@ entity:
       name: Primært objektiv (Eksperimentel)
     shared_fixed:
       name: Fast linse
+    multiview:
+      name: Multivisning
     shared_movable:
       name: Bevægelig linse
     event_image:

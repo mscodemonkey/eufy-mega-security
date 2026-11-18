@@ -19,6 +19,9 @@
       "shared_fixed": {
         "name": "Fast linse"
       },
+      "multiview": {
+        "name": "Multivisning"
+      },
       "shared_movable": {
         "name": "Bevægelig linse"
       },

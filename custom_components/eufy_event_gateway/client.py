@@ -470,6 +470,25 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid shared lens path")
         return self._url(path)
 
+    async def multiview_stream_url(self, station: str) -> str:
+        """Ask for one NVR's native multi-view, never falling back to another route.
+
+        The multi-view is native video only. Every response must name the
+        requested NVR's multi-view route and the native profile.
+        """
+        payload = await self._json(f"/api/stations/{quote(station, safe='')}/stream-token", method="POST",
+                                   payload={"profile": "native", "audio": "off"})
+        if not isinstance(payload, dict) or payload.get("profile") != "native" or payload.get("view") != "multiview":
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        path = payload.get("path")
+        if not isinstance(path, str) or "\\" in path:
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        parts = urlsplit(path)
+        if (parts.scheme or parts.netloc or parts.fragment
+                or parts.path != f"/api/stations/{quote(station, safe='')}/live-multiview-native.annexb"):
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        return self._url(path)
+
     async def event_image(self, serial: str) -> bytes | None:
         """Read the latest event picture, returning None before one arrives."""
         try:

@@ -47,6 +47,9 @@ export interface StreamController {
    * admits it within the NVR's call budget, or rejects without opening a call.
    */
   openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
+
+  /** Open one T8N00's stitched multi-view on its own native call, or reject without opening one. */
+  openNvrMultiViewCall?(stationSerial: string): Promise<NvrLensCall>;
 }
 
 /** Bounded timing counters for one side of a viewer conversion session. */
@@ -756,6 +759,32 @@ export class LiveStreamManager extends EventEmitter {
         this.stopGraceMilliseconds, admitted, reason => {
           if (this.#nativeLensViews.get(key) === owned) this.#nativeLensViews.delete(key);
           this.emit("native-lens-closed", { model: "T8E00", lens, reason });
+        });
+      view = owned; this.#nativeLensViews.set(key, owned);
+    }
+    try { await view.add(response); }
+    catch (error) { response.destroy(error instanceof Error ? error : undefined); }
+  }
+
+  /**
+   * Give a multi-view viewer the NVR's own stitched native call, shared by
+   * every multi-view viewer of that NVR, as a pane's viewers share its call.
+   * It never joins a camera's source and never transcodes.
+   */
+  async addNativeMultiViewClient(stationSerial: string, response: VideoViewerResponse): Promise<void> {
+    if (this.#closed || response.destroyed || response.writableEnded) return;
+    const open = this.controller.openNvrMultiViewCall?.bind(this.controller);
+    if (!open) throw new Error("The multi-view is unavailable");
+    const admitted = (): boolean => !this.#closed && this.state.hasStation(stationSerial)
+      && this.state.getStation(stationSerial).nvrMultiViewSupported === true;
+    if (!admitted()) throw new Error("The multi-view is unavailable");
+    const key = JSON.stringify([stationSerial, "multiview"]);
+    let view = this.#nativeLensViews.get(key);
+    if (!view || view.closed) {
+      const owned: NativeLensView = new NativeLensView("multiview", () => open(stationSerial), new VideoParameterSetCache(),
+        this.stopGraceMilliseconds, admitted, reason => {
+          if (this.#nativeLensViews.get(key) === owned) this.#nativeLensViews.delete(key);
+          this.emit("native-multiview-closed", { model: "T8N00", reason });
         });
       view = owned; this.#nativeLensViews.set(key, owned);
     }

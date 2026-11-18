@@ -104,6 +104,12 @@ export interface CameraProvider {
   /** Open one lens on its own native NVR call for a pane, within the NVR's call budget. */
   openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
 
+  /** Read whether one T8N00 offers its multi-view camera, without opening media. */
+  nvrMultiViewAdmitted?(stationSerial: string): boolean;
+
+  /** Open one T8N00's stitched multi-view on its own native call, within its call budget. */
+  openNvrMultiViewCall?(stationSerial: string): Promise<NvrLensCall>;
+
 
   /**
    * Inject media checks and guarded retirement while the manager retains source and lease ownership.

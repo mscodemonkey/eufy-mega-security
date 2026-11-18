@@ -19,6 +19,9 @@
       "shared_fixed": {
         "name": "Fixed lens"
       },
+      "multiview": {
+        "name": "Multi-view"
+      },
       "shared_movable": {
         "name": "Movable lens"
       },

@@ -555,6 +555,17 @@ lens identities, continued playback after one closed and a single final call
 close in [#433](https://github.com/mscodemonkey/eufy-mega-security/issues/433).
 Longer playback and other camera/station pairings remain unconfirmed. See [lens entity setup and limits](docs/NVR_LIVE_CONTROLS.md#separate-lens-entities).
 
+### Experimental NVR multi-view camera
+
+With experimental NVR live view on, each owned T8N00 has an optional **Multi-view**
+camera on the NVR's device, disabled in HA by default. The NVR stitches up to nine
+of its cameras, in channel order, into one 3840x2160 H.265 picture of 1280x720
+cells on a single NVR call, which the gateway passes through unconverted. Its
+viewers share that call. It counts as one call in the NVR's call limit beside the
+lens cameras and views, and it is unavailable with H.264 compatibility on. The
+E340 doorbell is left out, because the NVR leaves its cell blank. See
+[multi-view setup and limits](docs/NVR_LIVE_CONTROLS.md#multi-view-camera).
+
 ### Experimental fixed H.265 viewer resolution
 
 The app option `experimental_fixed_h265_resolution` is off by default. When

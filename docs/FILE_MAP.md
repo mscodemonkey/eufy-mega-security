@@ -66,7 +66,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `src/stream/stored-recordings.ts` | Reads standalone SoloCam SD events and finalizes and verifies saved MP4 media. |
 | `src/stream/homebase-ppcs.ts` | Short-lived local HomeBase 3 state, storage, acknowledgement, and readback command sessions. |
 | `src/stream/live-stream-manager.ts` | Shares a provider H.264 source, feeds FFmpeg for snapshots/clips, bounds recordings, and stops idle sessions. |
-| `src/stream/native-lens-views.ts` | Serves one S4 lens pane from its own native NVR call, shared by that pane's viewers, and ends the call after the idle grace (the provider parks it while other calls on that NVR are in use). |
+| `src/stream/native-lens-views.ts` | Serves one S4 lens pane, or one NVR's stitched multi-view, from its own native NVR call, shared by that camera's viewers, and ends the call after the idle grace (the provider parks it while other calls on that NVR are in use). |
 | `src/stream/shared-lens-views.ts` | Splits one admitted NVR Both feed into two optional 720p camera views for H.264 compatibility, with separate bounded outputs and retained pane images. |
 | `src/stream/jpeg-parser.ts` | Reassembles complete JPEG frames from arbitrary FFmpeg stdout chunks. |
 | `src/stream/media-input-bound.ts` | Keeps each FFmpeg child's unread camera input under two seconds, skipping a child that falls behind to the next keyframe. |

@@ -1,19 +1,24 @@
 /**
- * Serves one S4 lens on its own native NVR call, for one optional pane camera.
+ * Serves one S4 lens on its own native NVR call, for one optional pane camera,
+ * or one NVR's stitched multi-view the same way, for its multi-view camera.
  * The provider owns the call and its admission. Each instance owns that call's
  * output, its HTTP clients and the idle grace, and hangs the call up when its
- * last client has gone. The other lens has its own instance and call, so closing
- * one pane never touches the other. No transcoder or camera setting is involved.
+ * last client has gone. The other lens and the multi-view have their own
+ * instances and calls, so closing one never touches another. No transcoder or
+ * camera setting is involved.
  */
 import type { Readable } from "node:stream";
 import type { VideoCodec } from "../domain/types.js";
 import type { VideoViewerResponse } from "./live-transport-muxer.js";
 import type { SharedLens } from "./shared-lens-views.js";
 
-/** One provider-owned native call for one lens. Closing it hangs up the call. */
+/** What one native view shows: an S4 lens for a pane, or an NVR's multi-view. */
+export type NativeView = SharedLens | "multiview";
+
+/** One provider-owned native call for one lens or a multi-view. Closing it hangs up the call. */
 export interface NvrLensCall {
 
-  /** The lens's own H.265 (or H.264) Annex B video, ended when the call ends. */
+  /** The call's own H.265 (or H.264) Annex B video, ended when the call ends. */
   readonly output: Readable;
 
   /** The codec the session has checked from the video, once it has. */
@@ -23,7 +28,7 @@ export interface NvrLensCall {
   close(): Promise<void>;
 }
 
-/** Manager-supplied decoder start for new viewers, fed only by this lens. */
+/** Manager-supplied decoder start for new viewers, fed only by this view's call. */
 export interface NativeLensCache {
   push(chunk: Buffer, hint: VideoCodec): void;
   readonly codec: VideoCodec | null;
@@ -32,14 +37,14 @@ export interface NativeLensCache {
   readonly diagnostics: { readonly randomAccessPictures: number };
 }
 
-/** Content-free reasons a lens view ended, for the gateway log. */
+/** Content-free reasons a native view ended, for the gateway log. */
 export type NativeLensCloseReason = "clients_closed" | "source_ended" | "start_failed" | "admission_changed" | "gateway_closed";
 
 /** Largest unsent response queue before one slow viewer is closed on its own. */
 const MAX_CLIENT_QUEUE_BYTES = 4 * 1024 * 1024;
 
 /**
- * One lens call shared by every viewer of that pane.
+ * One native call shared by every viewer of that pane or multi-view camera.
  * Viewers join from the current keyframe. A slow viewer closes alone. The call
  * stays up through the gateway's normal idle grace, so Home Assistant's URL
  * renewals do not hang it up and call again, and then closes. The call ending
@@ -54,7 +59,7 @@ export class NativeLensView {
   readonly #ready: Promise<void>;
 
   constructor(
-    readonly lens: SharedLens,
+    readonly lens: NativeView,
     open: () => Promise<NvrLensCall>,
     private readonly cache: NativeLensCache,
     private readonly graceMilliseconds: number,
