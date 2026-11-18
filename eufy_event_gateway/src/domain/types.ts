@@ -218,6 +218,13 @@ export interface CameraState {
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
 
+  /**
+   * The lenses this camera can show in its NVR's multi-view cell, when it has a
+   * choice, and the one chosen. Independent of Camera view.
+   */
+  readonly nvrMultiViewLensOptions?: readonly string[];
+  readonly nvrMultiViewLens?: number | null;
+
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;
 
@@ -634,6 +641,13 @@ export interface CameraIdentity {
   readonly nvrOpticalZoomControlSupported?: boolean;
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
+
+  /**
+   * The lenses this camera can show in its NVR's multi-view cell, when it has a
+   * choice, and the one chosen. Independent of Camera view.
+   */
+  readonly nvrMultiViewLensOptions?: readonly string[];
+  readonly nvrMultiViewLens?: number | null;
 
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;

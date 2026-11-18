@@ -164,3 +164,30 @@ test("the multi-view token names the NVR's own unconverted route, needs the nati
     assert.deepEqual(opened, ["station"]);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("the multi-view lens choice is a closed body, needs the bearer token, and returns the camera's new state", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "multiview-lens-http-")), state = new GatewayState();
+  state.registerCamera({ serial: "test", name: "Synthetic", model: "T8E00", stationSerial: "station", streamSupported: true, doorbellSupported: false });
+  const chosen: string[] = [];
+  const provider = { setNvrMultiViewLens: async (serial: string, lens: number) => {
+    chosen.push(`${serial}:${lens}`);
+    return { serial, name: "Synthetic", model: "T8E00", stationSerial: "station", streamSupported: true, doorbellSupported: false,
+      nvrMultiViewLensOptions: ["Fixed", "Movable"], nvrMultiViewLens: lens };
+  } } as unknown as CameraProvider;
+  const snapshots = new SnapshotStore(directory);
+  await snapshots.initialize();
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture" }, state, snapshots, {} as LiveStreamManager, provider, null);
+  try {
+    await server.listen(); const base = `http://127.0.0.1:${server.port}/api/cameras`;
+    const post = async (body: string, serial = "test", authorization = "Bearer fixture") =>
+      await fetch(`${base}/${serial}/nvr-multiview-lens`, { method: "POST", headers: { authorization, "content-type": "application/json" }, body });
+    for (const body of ['{"lens":2}', '{"lens":"1"}', '{"lens":1,"view":2}', '{}']) assert.equal((await post(body)).status, 400, body);
+    assert.equal((await post('{"lens":1}', "test", "Bearer wrong")).status, 401);
+    assert.equal((await post('{"lens":1}', "missing")).status, 404);
+    const response = await post('{"lens":1}');
+    assert.equal(response.status, 200);
+    const camera = await response.json();
+    assert.deepEqual([camera.nvrMultiViewLensOptions, camera.nvrMultiViewLens], [["Fixed", "Movable"], 1]);
+    assert.deepEqual(chosen, ["test:1"]);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

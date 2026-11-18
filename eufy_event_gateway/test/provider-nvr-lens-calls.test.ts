@@ -520,3 +520,65 @@ for (const exit of ["close", "start_failure", "call_lost", "shutdown"] as const)
     await value.provider.reserveNvrLiveTrial("synthetic-e41", new AbortController().signal)();
   });
 }
+
+test("the S4's lens in its multi-view cell is its own choice, Fixed by default, independent of Camera view", async context => {
+  const value = await fixture(context, allChannels);
+  const s4 = value.state.getCamera("synthetic-s4");
+  assert.deepEqual([s4.nvrMultiViewLensOptions, s4.nvrMultiViewLens], [["Fixed", "Movable"], 0]);
+  assert.deepEqual(value.state.getCamera("synthetic-cam0").nvrMultiViewLensOptions, [], "a one-lens camera has no choice");
+  assert.deepEqual(value.state.getCamera("synthetic-s4b").nvrMultiViewLensOptions, [], "nor does a camera outside the grid");
+  await value.provider.setNvrView("synthetic-s4", 1);
+  let grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  const cell = (index: number) => (value.started.at(-1)!.sensor as { cells: { channel: number; sensor: number }[] }).cells[8 + index - 8];
+  assert.deepEqual(cell(8), { channel: 9, sensor: 0 }, "Camera view on Movable doesn't move the cell");
+  await assert.rejects(value.provider.setNvrMultiViewLens("synthetic-s4", 1), { code: "busy" }, "not while the multi-view is open");
+  await grid.close();
+  const chosen = await value.provider.setNvrMultiViewLens("synthetic-s4", 1);
+  assert.equal(chosen.nvrMultiViewLens, 1);
+  assert.equal(value.provider.nvrSharedLensViewsAdmitted("synthetic-s4"), false, "Camera view is still Movable");
+  grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  assert.deepEqual(cell(8), { channel: 9, sensor: 1 }, "the next multi-view shows the chosen lens");
+  await grid.close();
+  await assert.rejects(value.provider.setNvrMultiViewLens("synthetic-cam0", 1), { code: "disabled" });
+  await assert.rejects(value.provider.setNvrMultiViewLens("synthetic-s4", 2), { code: "unavailable" });
+});
+
+test("an NVR that refuses the stitched start withdraws its multi-view, once, with a log line", async context => {
+  const value = await fixture(context, allChannels);
+  const lines: string[] = [];
+  const write = process.stderr.write.bind(process.stderr);
+  context.mock.method(process.stderr, "write", (chunk: unknown, ...rest: unknown[]) => {
+    lines.push(String(chunk)); return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+  });
+  value.failStarts(new NvrTrialError("call", "call_timeout"));
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), admission => admission instanceof NvrTrialError);
+  assert.equal(value.provider.nvrMultiViewAdmitted("synthetic-nvr"), true, "an unanswered call is not a refusal of the stitch");
+  value.failStarts(new NvrTrialError("start"));
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), (error: unknown) => error instanceof NvrTrialError && error.stage === "start");
+  value.failStarts(null);
+  assert.equal(value.provider.nvrMultiViewAdmitted("synthetic-nvr"), false);
+  assert.equal(value.stations.filter(station => station.serial === "synthetic-nvr").at(-1)?.nvrMultiViewSupported, false, "HA hears it at once");
+  const placed = value.started.length;
+  await assert.rejects(value.provider.openNvrMultiViewCall("synthetic-nvr"), admission);
+  assert.equal(value.started.length, placed, "no further stitched call is placed");
+  assert.equal(lines.filter(line => line.includes("nvr_multiview_unavailable")).length, 1);
+  assert.match(lines.find(line => line.includes("nvr_multiview_unavailable"))!, /reason=stitched_start_refused stage=start .*model=T8N00/);
+  const pane = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  await pane.close();
+  assert.equal(value.closed.length >= 1, true, "the panes and views are unaffected");
+});
+
+test("the multi-view opens beside a recording view without touching its call, and takes nothing from it", async context => {
+  const value = await fixture(context, allChannels);
+  value.setRecording("synthetic-e41");
+  await value.provider.startStream("synthetic-e41"); await settle();
+  const grid = await value.provider.openNvrMultiViewCall("synthetic-nvr");
+  const pane = await value.provider.openNvrLensCall("synthetic-s4", "fixed");
+  await assert.rejects(value.provider.openNvrLensCall("synthetic-s4", "movable"), admission);
+  assert.equal(value.started.length, 3, "the recording view's call, the multi-view's and the pane's");
+  assert.equal(value.closed.length + value.parkedLog.length, 0, "the recording view kept its call throughout");
+  await Promise.all([grid.close(), pane.close()]);
+  assert.equal(value.closed.length, 0, "both parked beside the recording view");
+  await value.provider.stopStream("synthetic-e41"); await settle();
+  assert.equal(value.closed.length, 3, "and hung up with it at the end");
+});

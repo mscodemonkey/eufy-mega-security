@@ -1258,6 +1258,15 @@ export class GatewayServer {
         return await this.#cameraAudioRecording(request, segments[2]!, response);
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
+        && segments[3] === "nvr-multiview-lens") {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        const body = await readClosedNvrBody(request);
+        if (Object.keys(body).length !== 1 || (body.lens !== 0 && body.lens !== 1)) throw new SyntaxError("Invalid multi-view lens");
+        if (!this.provider.setNvrMultiViewLens) throw new NvrLiveControlError("disabled");
+        return json(response, 200, this.state.registerCamera(await this.provider.setNvrMultiViewLens(segments[2]!, body.lens as number)));
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
         && ["nvr-live-control", "nvr-view"].includes(segments[3]!)) {
         if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
         return await this.#nvrLiveAction(request, segments[2]!, segments[3] === "nvr-view", response);
@@ -2081,7 +2090,7 @@ async function readClosedNvrBody(request: IncomingMessage): Promise<Record<strin
   const value: unknown = JSON.parse(text);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Expected an object");
   const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
-  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view"].includes(key))) throw new SyntaxError("Invalid keys");
+  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view", "lens"].includes(key))) throw new SyntaxError("Invalid keys");
   return value as Record<string, unknown>;
 }
 

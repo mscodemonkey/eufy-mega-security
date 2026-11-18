@@ -7,7 +7,7 @@ import test from "node:test";
 import { IceCandidate, RTCIceCandidate } from "werift";
 import { diagnosticsPage } from "../src/diagnostics/page.js";
 import { NvrPtcsReassembler } from "../src/stream/nvr-ptcs-reassembly.js";
-import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, nvrStitchSensor, nvrStitchValid, NvrTrialError, type NvrStitch } from "../src/stream/nvr-protocol.js";
+import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, nvrStitchLenses, nvrStitchValid, NvrTrialError, type NvrStitch } from "../src/stream/nvr-protocol.js";
 import { loadConfig } from "../src/config.js";
 
 function offer(): string {
@@ -199,12 +199,12 @@ test('a stitch past its cells, beyond the decodable size, or with a repeated or 
   assert.equal(nvrStitchValid({ mode: 3, width: 3840, height: 2160, cells: [cell(9, 0), cell(9, 1)] }), true, 'both lenses of one camera may share a grid');
 });
 
-test('every camera behind an NVR fills a stitched cell with its first lens, except the doorbell', () => {
-  assert.equal(nvrStitchSensor('T8214', 94), null, 'the E340 never fills a stitched cell, with either sensor');
-  assert.equal(nvrStitchSensor('T8E00', 301), 0, 'the S4 shows its Fixed lens');
-  for (const [model, type] of [['T8416', 104], ['T8P10', 303], ['T8140', 14], ['T8172', 89]] as const) assert.equal(nvrStitchSensor(model, type), 0);
-  assert.equal(nvrStitchSensor('T8214', 104), null);
-  assert.equal(nvrStitchSensor('T9999', 1), null, 'an unknown camera is never stitched');
+test('every camera behind an NVR can fill a stitched cell with its lens, the S4 with either, and the doorbell with neither', () => {
+  assert.deepEqual(nvrStitchLenses('T8214', 94), [], 'the E340 never fills a stitched cell, with either sensor');
+  assert.deepEqual(nvrStitchLenses('T8E00', 301), [0, 1], 'the S4 can show Fixed or Movable');
+  for (const [model, type] of [['T8416', 104], ['T8P10', 303], ['T8140', 14], ['T8172', 89]] as const) assert.deepEqual(nvrStitchLenses(model, type), [0]);
+  assert.deepEqual(nvrStitchLenses('T8214', 104), []);
+  assert.deepEqual(nvrStitchLenses('T9999', 1), [], 'an unknown camera is never stitched');
 });
 
 test('NVR discovery rejects ambiguous aliases and duplicate selected identities before video', () => {

@@ -967,6 +967,25 @@ class EufyGatewayMultiViewCamera(EufyStationEntity, Camera):
         """Keep the expiring gateway URL on HA's renewing HLS worker, as the cameras do."""
         return None
 
+    async def async_get_stream_url(self) -> dict[str, str]:
+        """Start Home Assistant's HLS provider for the multi-view and return its temporary URL."""
+        if not self.available:
+            raise HomeAssistantError("The multi-view is unavailable")
+        path = await async_request_stream(self.hass, self.entity_id, "hls")
+        return {"url": f"{get_url(self.hass)}{path}", "content_type": "application/vnd.apple.mpegurl"}
+
+    async def async_record_clip(self, filename: str, duration: int) -> None:
+        """Refuse the gateway clip route, which records one camera's own source."""
+        raise HomeAssistantError("Use camera.record to record the multi-view")
+
+    async def async_capture_snapshot(self, filename: str) -> None:
+        """Refuse a fresh capture: it would need a call of its own."""
+        raise HomeAssistantError("Fresh snapshots are unavailable for the multi-view")
+
+    async def async_play_audio(self, filename: str) -> None:
+        """The multi-view has no speaker."""
+        raise HomeAssistantError("Speaker playback is unavailable for the multi-view")
+
     async def async_added_to_hass(self) -> None:
         """Renew the stream credentials while a stream has a consumer."""
         await super().async_added_to_hass()

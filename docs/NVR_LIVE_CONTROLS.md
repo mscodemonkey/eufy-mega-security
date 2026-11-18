@@ -200,8 +200,12 @@ boxes generally decode. On one T8N00 it ran at 20 fps in real time, about
 0.76 Mbit/s, using 33 of the NVR's 240 units of encoder capacity.
 
 The cells hold the NVR's cameras that play natively in Home Assistant, in
-channel order, up to nine. Any further cameras are left out. An S4 shows its
-Fixed lens. A cell with no camera stays blank, and a camera that is switched off
+channel order, up to nine. Any further cameras are left out. An S4 shows the lens
+chosen in its own **Multi-view lens** select, Fixed by default. That choice is
+separate from Camera view, so the cell never changes when Camera view does. Like
+Camera view, it changes only while the multi-view is closed, and it returns to
+Fixed when the gateway restarts. The select starts disabled in Home Assistant. A
+cell with no camera stays blank, and a camera that is switched off
 shows the NVR's own "turned off" card. The T8214 (E340) doorbell is left out: it
 plays on its own as both its lenses stacked, but in every grid and stack tried
 it left its cell on "Please wait…", with either lens. The cells are fixed when
@@ -226,6 +230,24 @@ With the integration's H.264 compatibility option on, the multi-view camera is
 unavailable. A 3840x2160 H.264 conversion is beyond the hardware the app
 typically runs on, and the multi-view never falls back to a converted route.
 
+The layouts were measured on one NVR S4 and its firmware only, so the multi-view
+fails safe elsewhere. If an NVR answers the call but refuses or never
+acknowledges the stitched start, the gateway logs
+`nvr_multiview_unavailable reason=stitched_start_refused` once, with the NVR's
+model and firmware, and withdraws that NVR's multi-view: the camera shows
+unavailable and no further stitched call is placed until the gateway restarts or
+the NVR's firmware changes. An unanswered or failed call is not a refusal; it
+fails like any view, and Home Assistant retries.
+
+**Recording.** The multi-view sends the NVR only the camera list request, the
+start and the stop, as a pane does: no recording or camera setting is read or
+written, and the NVR's own recording is independent of live calls. In the
+gateway it never takes or yields a call, so a view recording a gateway clip
+keeps its call, and the multi-view is refused instead when the budget is full.
+Use Home Assistant's `camera.record` to record the multi-view; the integration's
+`record_clip` and `capture_snapshot` actions are refused on it, because both
+work on one camera's own source.
+
 The gateway route is `/api/stations/<NVR>/live-multiview-native.annexb`, signed
 like the native camera routes; `POST /api/stations/<NVR>/stream-token` with
 `{"profile":"native"}` returns it. The station's `nvrMultiViewSupported` field
@@ -235,11 +257,20 @@ The stitched start is general: the layout, the cells with their lenses, and the
 size are parameters, so other layouts (a 2x2 grid, or two or three pictures
 stacked) use the same path. Only the 3x3 multi-view camera uses it so far.
 
+Who owns what: the gateway's provider owns the NVR call and its admission,
+parking and hang-up; one gateway view per NVR owns the call's output and its
+HTTP viewers, joining each at a keyframe and closing a slow viewer alone; Home
+Assistant's stream worker owns its own HLS output for the entity. Each closes on
+its own idle rule: HA stops its stream after its idle timeout, the gateway view
+closes its call after the gateway's idle grace, and the provider parks or hangs
+up the call as above.
+
 Local tests cover the stitched start for several layouts, the cell rule and the
-doorbell, admission within the budget beside both panes and a view, refusal past
-it with no call placed, viewers sharing one call, parking and the hang-up hold
-with the panes, the compatibility behaviour, and release of the call on every
-exit.
+doorbell, the lens choice and its independence from Camera view, admission within
+the budget beside both panes and a view, refusal past it with no call placed, a
+recording view kept untouched, viewers sharing one call, parking and the hang-up
+hold with the panes, the fail-safe on a refused stitched start, the compatibility
+behaviour, and release of the call on every exit.
 
 ## Retry while an unused call is closing
 

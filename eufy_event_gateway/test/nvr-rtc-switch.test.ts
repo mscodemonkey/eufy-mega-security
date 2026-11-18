@@ -283,6 +283,8 @@ test('a parked call switches to a stitched start, and from it back to one camera
     assert.deepEqual(stitched.chn_list, [{ index: 0, chn: 3, sensor: 0 }, { index: 1, chn: 8, sensor: 0 }]);
     assert.deepEqual(stitched.stitch_resolution, { width: 3840, height: 2160 });
     assert.equal(stitched.audio_chn, -1, 'a stitched call carries video only');
+    assert.ok(value.requests.every(row => [9100, 1003, 1004].includes(row.command)),
+      'only the camera list, starts and stops: no settings query or write reaches the NVR');
     assert.deepEqual(reported, [value.session.output]);
     while (!value.session.switchable) await new Promise(resolve => setTimeout(resolve, 20));
     await value.session.switchCamera(value.target(output => { output.resume(); }));

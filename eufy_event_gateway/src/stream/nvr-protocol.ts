@@ -155,15 +155,16 @@ export function nvrStitchValid(stitch: unknown): stitch is NvrStitch {
 }
 
 /**
- * The lens a camera shows in a stitched cell, or null for a model the
- * recorder's stitcher cannot carry. The T8214 (E340) doorbell streams on its
- * own as both its lenses stacked, but leaves its cell on "Please wait…" in
- * every grid and stack, with either sensor (measured on a T8N00). Every other
- * camera shows its first lens, which is the S4's Fixed lens.
+ * The lenses a camera can show in a stitched cell, first lens first, or none
+ * for a model the recorder's stitcher cannot carry. The T8214 (E340) doorbell
+ * streams on its own as both its lenses stacked, but leaves its cell on
+ * "Please wait…" in every grid and stack, with either sensor (measured on a
+ * T8N00). The S4 can show its Fixed (0) or Movable (1) lens; every other
+ * camera shows its only lens.
  */
-export function nvrStitchSensor(model: string, deviceType: number | null): 0 | null {
-  if (model === "T8214" && deviceType === 94) return null;
-  return nvrTrialSensor(model, deviceType) === null ? null : 0;
+export function nvrStitchLenses(model: string, deviceType: number | null): readonly (0 | 1)[] {
+  if (model === "T8214" && deviceType === 94 || nvrTrialSensor(model, deviceType) === null) return [];
+  return model === "T8E00" && deviceType === 301 ? [0, 1] : [0];
 }
 
 /**

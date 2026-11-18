@@ -562,8 +562,11 @@ camera on the NVR's device, disabled in HA by default. The NVR stitches up to ni
 of its cameras, in channel order, into one 3840x2160 H.265 picture of 1280x720
 cells on a single NVR call, which the gateway passes through unconverted. Its
 viewers share that call. It counts as one call in the NVR's call limit beside the
-lens cameras and views, and it is unavailable with H.264 compatibility on. The
-E340 doorbell is left out, because the NVR leaves its cell blank. See
+lens cameras and views, and it is unavailable with H.264 compatibility on. An S4
+shows the lens chosen in its own Multi-view lens select (Fixed by default,
+separate from Camera view). The E340 doorbell is left out, because the NVR leaves
+its cell blank. An NVR that refuses the stitched start has its multi-view
+withdrawn, with one log line. Layouts are measured on one NVR S4 only. See
 [multi-view setup and limits](docs/NVR_LIVE_CONTROLS.md#multi-view-camera).
 
 ### Experimental fixed H.265 viewer resolution

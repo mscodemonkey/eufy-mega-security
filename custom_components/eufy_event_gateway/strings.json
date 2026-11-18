@@ -310,6 +310,13 @@
           "wide": "Wide",
           "telephoto": "Telephoto"
         }
+      },
+      "nvr_multiview_lens": {
+        "name": "Multi-view lens",
+        "state": {
+          "fixed": "Fixed",
+          "movable": "Movable"
+        }
       }
     },
     "sensor": {

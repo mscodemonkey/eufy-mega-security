@@ -122,11 +122,34 @@ class MultiViewCameraTests(unittest.IsolatedAsyncioTestCase):
         await entity._async_refresh_stream_source(None)
         self.assertEqual(entity.stream.source, "kept")
 
+    async def test_entity_actions_answer_cleanly(self):
+        """The platform's actions reach every camera entity, so the multi-view answers each one."""
+        env = namespace()
+        requested = AsyncMock(return_value="/api/hls/token/master_playlist.m3u8")
+        env.update(async_request_stream=requested, get_url=lambda hass: "http://ha")
+        coordinator = self.coordinator()
+        entity = env["EufyGatewayMultiViewCamera"](coordinator, "nvr")
+        entity.hass, entity.entity_id = object(), "camera.nvr_multi_view"
+        self.assertEqual(await entity.async_get_stream_url(), {"url": "http://ha/api/hls/token/master_playlist.m3u8",
+                                                               "content_type": "application/vnd.apple.mpegurl"})
+        requested.assert_awaited_once_with(entity.hass, "camera.nvr_multi_view", "hls")
+        for action, args in (("async_record_clip", ("/media/x.mp4", 15)), ("async_capture_snapshot", ("/media/x.jpg",)),
+                             ("async_play_audio", ("/media/x.aac",))):
+            with self.assertRaises(GatewayError):
+                await getattr(entity, action)(*args)
+        coordinator.stations["nvr"]["nvrMultiViewSupported"] = False
+        with self.assertRaises(GatewayError):
+            await entity.async_get_stream_url()
+        requested.assert_awaited_once()
+        coordinator.client.multiview_stream_url.assert_not_awaited()
+
     async def test_name_is_translated(self):
         """The entity takes its name from the translation key, beside the NVR's device name."""
-        for locale, name in (("en", "Multi-view"), ("da", "Multivisning")):
-            names = json.loads((ROOT / f"translations/{locale}.json").read_text())["entity"]["camera"]
-            self.assertEqual(names["multiview"]["name"], name)
+        for locale, name, lens in (("en", "Multi-view", "Multi-view lens"), ("da", "Multivisning", "Linse i multivisning")):
+            entities = json.loads((ROOT / f"translations/{locale}.json").read_text())["entity"]
+            self.assertEqual(entities["camera"]["multiview"]["name"], name)
+            self.assertEqual(entities["select"]["nvr_multiview_lens"]["name"], lens)
+            self.assertEqual(set(entities["select"]["nvr_multiview_lens"]["state"]), {"fixed", "movable"})
 
     async def test_discovery_adds_one_multi_view_per_nvr_that_reports_it(self):
         """A station whose gateway reports the field gets one entity; others get none."""
@@ -180,6 +203,76 @@ class MultiViewClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(GatewayError):
             await env[method.name](client, "nvr")
         self.assertEqual(request.await_count, 1)
+
+
+class MultiViewLensSelectTests(unittest.IsolatedAsyncioTestCase):
+    """The S4's multi-view lens is its own closed choice, never Camera view."""
+
+    def load(self):
+        tree = ast.parse((ROOT / "select.py").read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "EufyNvrMultiViewLensSelect")
+
+        class Base:
+            """Provide the availability fact normally owned by the coordinator."""
+            available = True
+
+            def __init__(self, coordinator, serial):
+                self.coordinator, self.serial = coordinator, serial
+
+            @property
+            def camera(self):
+                return self.coordinator.cameras.get(self.serial, {})
+
+        env = {"EufyGatewayEntity": Base, "SelectEntity": type("Select", (), {"__init__": lambda self: None}),
+               "EntityCategory": SimpleNamespace(CONFIG="config"), "HomeAssistantError": GatewayError,
+               "GatewayClientError": GatewayError, "EufyGatewayCoordinator": object}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "select.py", "exec"), env)
+        return env["EufyNvrMultiViewLensSelect"]
+
+    async def test_choice_is_closed_optional_and_confirmed_by_the_gateway(self):
+        cls = self.load()
+        row = {"nvrMultiViewLensOptions": ["Fixed", "Movable"], "nvrMultiViewLens": 0, "nvrViewOptions": ["Fixed", "Movable", "Both"], "nvrSelectedView": 1}
+        client = SimpleNamespace(set_nvr_multiview_lens=AsyncMock(return_value={"serial": "s4", "nvrMultiViewLens": 1}))
+        coordinator = SimpleNamespace(cameras={"s4": row}, client=client, async_set_camera=lambda camera: row.update(camera))
+        entity = cls(coordinator, "s4")
+        self.assertEqual(entity._attr_unique_id, "s4_nvr_multiview_lens")
+        self.assertEqual(entity._attr_translation_key, "nvr_multiview_lens")
+        self.assertEqual(entity._attr_entity_category, "config")
+        self.assertFalse(entity._attr_entity_registry_enabled_default)
+        self.assertEqual((entity.options, entity.current_option), (["fixed", "movable"], "fixed"), "not Camera view's Movable")
+        await entity.async_select_option("movable")
+        client.set_nvr_multiview_lens.assert_awaited_once_with("s4", 1)
+        self.assertEqual(entity.current_option, "movable")
+        with self.assertRaises(GatewayError):
+            await entity.async_select_option("both")
+        client.set_nvr_multiview_lens.side_effect = GatewayError("NVR control busy")
+        with self.assertRaisesRegex(GatewayError, "busy"):
+            await entity.async_select_option("fixed")
+        for raw in ([], ["Fixed"], ["Movable", "Fixed"], None):
+            row["nvrMultiViewLensOptions"] = raw
+            self.assertEqual((entity.options, entity.available, entity.current_option), ([], False, None))
+
+    async def test_client_sends_only_the_closed_lens_and_checks_the_camera(self):
+        tree = ast.parse((ROOT / "client.py").read_text())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GatewayClient")
+        method = next(n for n in cls.body if getattr(n, "name", None) == "set_nvr_multiview_lens")
+
+        class Error(Exception):
+            def __init__(self, message, code=None):
+                super().__init__(message); self.code = code
+        env = {"GatewayClientError": Error, "Any": object}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(ROOT / "client.py"), "exec"), env)
+        request = AsyncMock(return_value={"serial": "s4", "nvrMultiViewLens": 1})
+        client = SimpleNamespace(_json=request)
+        self.assertEqual((await env[method.name](client, "s4", 1))["nvrMultiViewLens"], 1)
+        self.assertEqual(request.call_args.args[0], "/api/cameras/s4/nvr-multiview-lens")
+        self.assertEqual(request.call_args.kwargs["payload"], {"lens": 1})
+        for wrong in (2, -1, True, "1"):
+            with self.assertRaises(Error):
+                await env[method.name](client, "s4", wrong)
+        request.return_value = {"serial": "other"}
+        with self.assertRaisesRegex(Error, "outcome is unknown"):
+            await env[method.name](client, "s4", 0)
 
 
 if __name__ == "__main__":

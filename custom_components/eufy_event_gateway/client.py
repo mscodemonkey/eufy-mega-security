@@ -760,6 +760,15 @@ class GatewayClient:
             raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
         return camera
 
+    async def set_nvr_multiview_lens(self, serial: str, lens: int) -> dict[str, Any]:
+        """Choose the lens a camera shows in its NVR's multi-view cell, owned by the gateway."""
+        if type(lens) is not int or lens not in (0, 1):
+            raise GatewayClientError("Unavailable multi-view lens", code="unavailable")
+        camera = await self._json(f"/api/cameras/{serial}/nvr-multiview-lens", method="POST", payload={"lens": lens}, nvr=True)
+        if camera.get("serial") != serial:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
+        return camera
+
     async def set_camera_siren(self, serial: str, duration: int) -> None:
         """Trigger or stop a camera siren using a device-side duration."""
         await self._json(

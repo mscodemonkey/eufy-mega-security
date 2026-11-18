@@ -44,7 +44,7 @@ import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceName
 import { NvrRtcSession, type NvrSwitchTarget } from "../stream/nvr-rtc-session.js";
 import type { NvrLensCall } from "../stream/native-lens-views.js";
 import type { SharedLens } from "../stream/shared-lens-views.js";
-import { NVR_STITCH_CELLS, NvrTrialError, nvrStitchSensor, nvrTrialSensor, type NvrSource, type NvrStateSummary, type NvrStitch } from "../stream/nvr-protocol.js";
+import { NVR_STITCH_CELLS, NvrTrialError, nvrStitchLenses, nvrTrialSensor, type NvrSource, type NvrStateSummary, type NvrStitch } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialFailureStage, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
@@ -920,6 +920,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrLiveIntervals = new Map<string, number>();
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: number }>();
+
+  /** Each camera's chosen lens for its NVR's multi-view cell, where it has a choice, until restart or rebinding. */
+  readonly #nvrMultiViewLenses = new Map<string, { binding: string; value: 0 | 1 }>();
+
+  /**
+   * NVRs that refused a stitched start. Results on one S4 don't qualify other
+   * firmware, so such an NVR's multi-view stays unavailable until the gateway
+   * restarts or the NVR's firmware or binding changes.
+   */
+  readonly #nvrMultiViewRefusals = new Map<string, string>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string, onlyIfUnused?: boolean) => Promise<boolean> } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
@@ -1805,7 +1815,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
-    this.#nvrViews.clear();
+    this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear(); this.#nvrMultiViewRefusals.clear();
     this.#retireInventoryRefresh();
     this.#events = events;
     this.#rebuildLockAdapter(events, generation);
@@ -2198,7 +2208,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!this.#nvrBinding(device, station) && !this.#nvrLiveAdmitted(device, station)) return null;
     const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? this.#nvrProfile(device) : null;
     const values = this.#nvrCachedSettings(device);
-    const view = this.#nvrView(device);
+    const view = this.#nvrView(device), lensOptions = this.#nvrMultiViewLensOptions(device);
     return {
       serial: device.serial, name: device.name, model: device.model, deviceType: device.deviceType, stationSerial: device.parentSerial,
       catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
@@ -2208,6 +2218,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       directionalPanControlSupported: false,
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView || view === profile.stackedView),
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile?.views.length ? view : null, nvrLiveControlsSupported: !!profile,
+      nvrMultiViewLensOptions: lensOptions, nvrMultiViewLens: lensOptions.length ? this.#nvrMultiViewLens(device) : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: values.tracking === null ? null : values.tracking === 1, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       hlsIdleHandoverSupported: this.#normalNvrLiveBinding(device, station),
@@ -2628,6 +2639,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
       logger.warn(`${entry.event}_failed`, `stage=${failure.stage} reason=${failure.reason} ${entry.detail}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
       await entry.release();
+
+      // The NVR answered the call but refused, or never acknowledged, the stitched start itself.
+      if (entry.view === "multiview" && failure.stage === "start") this.#refuseNvrMultiView(entry.station.serial, failure);
       throw failure;
     }
   }
@@ -2689,7 +2703,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const first = cells[0]!, layout = this.#nvrMultiViewLayout(cells);
     return this.#admitNvrOwnCall({ key, device: station, station, view: "multiview", event: "nvr_multiview_call", detail: `cells=${cells.length}`,
       source: { camera: first.serial, channel: first.channel!, cameraType: first.deviceType!,
-        sensor: { ...NVR_MULTIVIEW_PICTURE, cells: cells.map(cell => ({ channel: cell.channel!, sensor: nvrStitchSensor(cell.model, cell.deviceType)! })) },
+        sensor: { ...NVR_MULTIVIEW_PICTURE, cells: cells.map(cell => ({ channel: cell.channel!, sensor: this.#nvrMultiViewLens(cell) })) },
         cells: cells.map(cell => ({ camera: cell.serial, channel: cell.channel!, cameraType: cell.deviceType! })) },
       admitted: () => {
         const now = this.#devices.get(stationSerial);
@@ -2818,6 +2832,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const station = this.#devices.get(stationSerial);
     return !!station && station.model === "T8N00" && station.deviceType === 300
       && station.category === "eufy_security" && !!this.config.experimentalNvrLive && !!this.config.normalNvrLive
+      && this.#nvrMultiViewRefusals.get(stationSerial) !== this.#nvrMultiViewRefusalKey(station)
       && this.#nvrMultiViewCells(station).length >= 2;
   }
 
@@ -2828,14 +2843,66 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   #nvrMultiViewCells(station: MegaInventoryDevice): MegaInventoryDevice[] {
     const children = [...this.#devices.values()].filter(device => device.parentSerial === station.serial && device.serial !== station.serial);
-    return children.filter(device => this.#normalNvrLiveBinding(device, station) && nvrStitchSensor(device.model, device.deviceType) !== null
+    return children.filter(device => this.#normalNvrLiveBinding(device, station) && nvrStitchLenses(device.model, device.deviceType).length > 0
       && children.filter(other => other.channel === device.channel).length === 1)
       .sort((a, b) => a.channel! - b.channel!).slice(0, NVR_STITCH_CELLS[NVR_MULTIVIEW_PICTURE.mode]);
   }
 
-  /** What binds a multi-view call to its cells, so a change to any of them ends it. */
+  /** What binds a multi-view call to its cells and their lenses, so a change to any of them ends it. */
   #nvrMultiViewLayout(cells: readonly MegaInventoryDevice[]): string {
-    return JSON.stringify(cells.map(cell => [cell.serial, this.#nvrBindingKey(cell)]));
+    return JSON.stringify(cells.map(cell => [cell.serial, this.#nvrBindingKey(cell), this.#nvrMultiViewLens(cell)]));
+  }
+
+  /** The lens a camera shows in its NVR's multi-view cell: the one chosen, or its first (the S4's Fixed lens). */
+  #nvrMultiViewLens(device: MegaInventoryDevice): 0 | 1 {
+    const lenses = nvrStitchLenses(device.model, device.deviceType);
+    const chosen = this.#nvrMultiViewLenses.get(device.serial);
+    if (chosen?.binding === this.#nvrBindingKey(device) && lenses.includes(chosen.value)) return chosen.value;
+    this.#nvrMultiViewLenses.delete(device.serial);
+    return lenses[0] ?? 0;
+  }
+
+  /** The lens choice this camera offers for its NVR's multi-view, or none. */
+  #nvrMultiViewLensOptions(device: MegaInventoryDevice): string[] {
+    const station = this.#devices.get(device.parentSerial);
+    return station && nvrStitchLenses(device.model, device.deviceType).length === 2 && this.nvrMultiViewAdmitted(station.serial)
+      && this.#nvrMultiViewCells(station).some(cell => cell.serial === device.serial) ? ["Fixed", "Movable"] : [];
+  }
+
+  /**
+   * Choose which lens a camera shows in its NVR's multi-view cell. It is its
+   * own setting, independent of Camera view, so the cell never changes under a
+   * viewer. Like Camera view it changes only while the multi-view is closed,
+   * and holds until the gateway restarts.
+   */
+  async setNvrMultiViewLens(serial: string, lens: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
+    const device = this.#devices.get(serial);
+    if (!device || !this.#nvrMultiViewLensOptions(device).length) throw new NvrLiveControlError("disabled");
+    if (lens !== 0 && lens !== 1) throw new NvrLiveControlError("unavailable");
+    if (this.#nvrOwnCalls.has(JSON.stringify([device.parentSerial, "multiview"]))) throw new NvrLiveControlError("busy");
+    this.#nvrMultiViewLenses.set(serial, { binding: this.#nvrBindingKey(device), value: lens });
+    const identity = this.#nvrTrialIdentity(device)!;
+    this.#events?.camera(identity);
+    return identity;
+  }
+
+  /**
+   * Withdraw one NVR's multi-view after it refused a stitched start, with one
+   * log line, until the gateway restarts or the NVR's firmware or binding changes.
+   */
+  #refuseNvrMultiView(stationSerial: string, failure: NvrTrialError): void {
+    const station = this.#devices.get(stationSerial);
+    if (!station) return;
+    this.#nvrMultiViewRefusals.set(stationSerial, this.#nvrMultiViewRefusalKey(station));
+    const firmware = station.firmware && /^[0-9A-Za-z._-]{1,32}$/.test(station.firmware) ? station.firmware : "unknown";
+    logger.warn("nvr_multiview_unavailable", `reason=stitched_start_refused stage=${failure.stage} detail=${failure.reason} model=${safeLogModel(station.model)} firmware=${firmware}`);
+    const state = this.#stations.get(stationSerial);
+    if (state) try { this.#events?.station(this.#publishedStation(state)); } catch {}
+  }
+
+  #nvrMultiViewRefusalKey(station: MegaInventoryDevice): string {
+    return JSON.stringify([station.firmware, station.adminUserId, this.#startupGeneration]);
   }
 
   /** Everything that binds a call to this entry's camera, for a new call or one moved here. */
@@ -3587,7 +3654,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #clearNvrSettings(serial: string): void {
     const cached = this.#nvrSettings.get(serial); if (cached?.timer) clearTimeout(cached.timer);
-    this.#nvrSettings.delete(serial); this.#nvrViews.delete(serial);
+    this.#nvrSettings.delete(serial); this.#nvrViews.delete(serial); this.#nvrMultiViewLenses.delete(serial);
   }
 
   #nvrObserveOwners(raw: Awaited<ReturnType<MegaClient["inventory"]>>): void {
@@ -5675,7 +5742,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrModePushTimes.clear();
     try { this.#events?.eventReceiverState("stopped"); } catch {}
     for (const value of this.#nvrSettings.values()) if (value.timer) clearTimeout(value.timer);
-    this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrExplicitOwners.clear();
+    this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear(); this.#nvrMultiViewRefusals.clear(); this.#nvrExplicitOwners.clear();
     await Promise.allSettled([...this.#nvrTrials.values(), ...this.#nvrOwnCalls.values()].map(call => call.release())
       .concat([...this.#nvrIdleCalls.keys()].flatMap(station => this.#hangUpNvrIdleCalls(station)))); current();
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release())); current();
@@ -5855,7 +5922,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (generation !== this.#startupGeneration) return;
       if (!allowLoginRecovery || !this.#client.isSessionInvalidError(error)) throw error;
       for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
-      this.#nvrViews.clear();
+      this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear();
       logger.warn("session_invalidated", "Mega session was invalidated; signing in again");
       const auth = await this.#client.connect(undefined, undefined, true);
       if (generation !== this.#startupGeneration) return;

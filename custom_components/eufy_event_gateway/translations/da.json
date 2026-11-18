@@ -310,6 +310,13 @@
           "wide": "Vidvinkel",
           "telephoto": "Telefoto"
         }
+      },
+      "nvr_multiview_lens": {
+        "name": "Linse i multivisning",
+        "state": {
+          "fixed": "Fast",
+          "movable": "Bevægelig"
+        }
       }
     },
     "sensor": {
