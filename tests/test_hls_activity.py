@@ -129,6 +129,29 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
         self.observer.close()
         self.assertFalse(self.observer.diagnostic()["installed"])
 
+    async def test_cleanup_freezes_last_request_gap_without_retaining_wall_clock_time(self):
+        """A later download must describe the cleanup gap, not time since cleanup."""
+        self.output.idle_timer.awake()
+        self.output.cleanup()
+        first = self.observer.diagnostic()["cleanup"]
+        await asyncio.sleep(0.02)
+        self.assertEqual(self.observer.diagnostic()["cleanup"], first)
+        self.assertEqual(first["request_gap_seconds"], 0)
+
+    async def test_diagnostics_read_the_output_local_segment_settings(self):
+        """Expose applied settings without changing the worker or shared defaults."""
+        settings = self.output.stream_settings
+        settings.min_segment_duration = 1.9
+        settings.ll_hls = True
+        result = self.observer.diagnostic()
+        self.assertEqual(result["minimum_segment_seconds"], 1.9)
+        self.assertEqual(result["target_segment_seconds"], 2.0)
+        self.assertIs(result["ll_hls"], True)
+        settings.min_segment_duration = float("nan")
+        self.assertNotIn("minimum_segment_seconds", self.observer.diagnostic())
+        self.assertEqual(self.output.cleaned, 0)
+        self.assertEqual(self.output.idle_timer.events, [])
+
     async def test_one_output_cannot_change_another_outputs_alarm(self):
         other = output()
         original = other.idle_timer.awake
@@ -142,7 +165,7 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
         self.output.idle_timer.awake()
         self.output.cleanup()
         result = self.observer.diagnostic()
-        self.assertEqual(result["cleanup"], {"source": "ha_output", "idle": True})
+        self.assertEqual(result["cleanup"], {"source": "ha_output", "idle": True, "request_gap_seconds": 0})
         self.assertEqual(result["requests"], 1)
         self.assertFalse(result["installed"])
         self.assertEqual(self.output.cleaned, 1)
@@ -151,7 +174,7 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
         """An explicit observer close is not evidence that HA removed an output."""
         self.observer.expiring = True
         self.output.cleanup()
-        self.assertEqual(self.observer.diagnostic()["cleanup"], {"source": "quiet_timer", "idle": None})
+        self.assertEqual(self.observer.diagnostic()["cleanup"], {"source": "quiet_timer", "idle": None, "request_gap_seconds": None})
         other = MODULE.HlsViewActivity.install(output(), lambda: True)
         other.close()
         self.assertNotIn("cleanup", other.diagnostic())
