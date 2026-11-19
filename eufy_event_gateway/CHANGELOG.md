@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.276
+
+- Accept standard and URL-safe base64 notification bodies within the existing size limits. This corrects a decoder gap, but S120 motion confirmation is still pending.
+- Retain the last media-request gap when Home Assistant removes an HLS output, and show the actual per-output segment settings. Playback timing, retries, receive audio and snapshots are unchanged. The reported freeze and slow-start cases remain open.
+- Answer the observed device keepalive only inside the existing default-off original T8420/type 3 standalone channel-zero live trial. Responses require the selected peer and exact clear message shape. Other models and EMS hardware behaviour remain unconfirmed.
+- Clarify current S330 discovery, retained-image, corrupted live-video and event-picture results. Keep C31 playback/seeking confirmation separate from missing reporter audio.
+
 ## 0.1.275
 
 - Extend the disabled-by-default C35 camera-enabled trial to exact owner-bound HomeBase 3 child routes, requiring a fresh reported baseline and single-write confirmation. Physical camera behaviour remains unconfirmed.
