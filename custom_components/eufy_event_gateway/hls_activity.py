@@ -34,6 +34,7 @@ class HlsViewActivity:
         self._timer: asyncio.TimerHandle | None = None
         self._closed = False
         self._requests = 0
+        self._last_request: float | None = None
         self._cleanup_observation: dict[str, Any] | None = None
         self._awake = output.idle_timer.awake
         self._cleanup = output.cleanup
@@ -81,6 +82,10 @@ class HlsViewActivity:
             observer._cleanup_observation = {
                 "source": "quiet_timer" if observer.expiring else "ha_output",
                 "idle": idle if type(idle) is bool else None,
+                "request_gap_seconds": (
+                    min(86400, max(0, int(observer._loop.time() - observer._last_request)))
+                    if observer._last_request is not None else None
+                ),
             }
             observer.close()
             observer._cleanup()
@@ -99,6 +104,7 @@ class HlsViewActivity:
         if self._closed or self.expiring:
             return
         self._requests = min(2**31 - 1, self._requests + 1)
+        self._last_request = self._loop.time()
         if self._timer is not None:
             self._timer.cancel()
         self._timer = self._loop.call_later(self._quiet_seconds, self._quiet)
@@ -124,6 +130,18 @@ class HlsViewActivity:
         """Retain this output's last cleanup without inferring HA's removal cause."""
         result = {"installed": not self._closed, "requests": self._requests,
                   "quiet_seconds": self._quiet_seconds, "expiring": self.expiring}
+        try:
+            settings = self.output.stream_settings
+            for key, value in (
+                ("minimum_segment_seconds", settings.min_segment_duration),
+                ("target_segment_seconds", self.output.target_duration),
+            ):
+                if type(value) in (int, float) and math.isfinite(value) and 0 < value <= 30:
+                    result[key] = value
+            if type(settings.ll_hls) is bool:
+                result["ll_hls"] = settings.ll_hls
+        except Exception:
+            pass
         if self._cleanup_observation is not None:
             result["cleanup"] = dict(self._cleanup_observation)
         return result
