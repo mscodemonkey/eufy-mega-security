@@ -9,6 +9,8 @@ import test from "node:test";
 
 import { decodeMcsAppData, mcsDeliveryLogSummary } from "../src/mega/android-push/push-client.js";
 
+import { parsePushEvent } from "../src/mega/push.js";
+
 const body = (value: unknown) => ({ appData: [{ key: "device_sn", value: "PRIVATE-DEVICE" }, { key: "payload", value }] });
 
 for (const [value, status] of [
@@ -67,7 +69,9 @@ test("URL-safe push bodies preserve the same event and bounded diagnostics as st
   assert.match(urlSafe, /[-_]/);
   for (const value of [standard, urlSafe, urlSafe + "=".repeat((4 - urlSafe.length % 4) % 4)]) {
     const input = body(value);
-    assert.deepEqual(decodeMcsAppData(input).payload, payload);
+    const decoded = decodeMcsAppData(input);
+    assert.deepEqual(decoded.payload, payload);
+    assert.equal(parsePushEvent(decoded)?.eventType, 3101);
     assert.ok(mcsDeliveryLogSummary(input, false).includes("payload_status=json_object"));
     assert.ok(!mcsDeliveryLogSummary(input, false).includes("synthetic"));
   }
