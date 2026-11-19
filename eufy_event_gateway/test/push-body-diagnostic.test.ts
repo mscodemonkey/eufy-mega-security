@@ -57,3 +57,18 @@ test("duplicate payload entries are marked ambiguous without changing last accep
   assert.deepEqual(decodeMcsAppData(input).payload, { a: 3101 });
   assert.ok(mcsDeliveryLogSummary(input, false).includes("payload_status=multiple"));
 });
+
+test("URL-safe push bodies preserve the same event and bounded diagnostics as standard base64", () => {
+  const payload = { event_type: 3101, name: "synthetic>??", note: "\uffff" };
+  const bytes = Buffer.from(JSON.stringify(payload) + "\0");
+  const standard = bytes.toString("base64");
+  const urlSafe = bytes.toString("base64url");
+  assert.match(standard, /[+/]/);
+  assert.match(urlSafe, /[-_]/);
+  for (const value of [standard, urlSafe, urlSafe + "=".repeat((4 - urlSafe.length % 4) % 4)]) {
+    const input = body(value);
+    assert.deepEqual(decodeMcsAppData(input).payload, payload);
+    assert.ok(mcsDeliveryLogSummary(input, false).includes("payload_status=json_object"));
+    assert.ok(!mcsDeliveryLogSummary(input, false).includes("synthetic"));
+  }
+});

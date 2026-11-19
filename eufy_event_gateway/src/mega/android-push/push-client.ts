@@ -92,11 +92,11 @@ export function mcsDeliveryLogSummary(object: unknown, duplicate: boolean): stri
   ].join(" ");
 }
 
-/** Classify the existing body decoder's result without retaining a loggable value. */
+/** Decode standard or URL-safe base64 bodies without retaining a loggable value. */
 function decodePayloadField(value: unknown): { status: string; decoded?: unknown } {
   if (typeof value !== "string") return { status: "invalid_value" };
   if (value.length > 90_000) return { status: "encoded_limit" };
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return { status: "invalid_base64" };
+  if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(value)) return { status: "invalid_base64" };
   const json = readNullTerminated(Buffer.from(value, "base64"));
   if (Buffer.byteLength(json, "utf8") > 65_536) return { status: "decoded_limit" };
   try {

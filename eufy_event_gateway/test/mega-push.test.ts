@@ -119,7 +119,7 @@ test("summarizes every MCS delivery without retaining identifiers or payloads", 
     persistentId: "private-persistent-id",
     category: "private-category",
     appData: [
-      { key: "payload", value: "private-payload" },
+      { key: "payload", value: "private.payload" },
       { key: "device_sn", value: "private-device" },
     ],
   }, true);
