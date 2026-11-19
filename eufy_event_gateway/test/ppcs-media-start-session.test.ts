@@ -1390,9 +1390,18 @@ test("opted-in T8420 answers only the exact channel-zero device ping before medi
   const replies = () => f.sent.filter(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1152);
   try {
     assert.equal(replies().length, 0);
+    const incoming = Buffer.alloc(32);
+    incoming.set([0xf1, 0xd0, 0, 28, 0xd1, 2, 0, 0]);
+    incoming.write("XZYH", 8); incoming.writeUInt16LE(1152, 12);
+    incoming.writeUInt32LE(8, 14); incoming[18] = 1;
+    f.receive(incoming, 12346);
+    f.receive(incoming, 12345, "127.0.0.2");
+    assert.equal(replies().length, 0);
     f.frame(1152, Buffer.alloc(8), 0, false, 0, 2, 1);
     assert.equal(replies().length, 1);
     const reply = replies()[0]!;
+    f.receive(incoming);
+    assert.equal(replies().length, 1);
     assert.equal(reply.length, 160);
     assert.deepEqual([...reply.subarray(18, 24)], [1, 0, 0, 0, 0, 0]);
     assert.deepEqual(reply.subarray(24, 32), Buffer.alloc(8));
