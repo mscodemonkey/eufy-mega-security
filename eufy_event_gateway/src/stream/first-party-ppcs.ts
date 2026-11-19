@@ -3485,6 +3485,11 @@ export class FirstPartyPpcsSession {
       return false;
     }
     if (has(message, RESP.data) && this.#remote) {
+
+      // This opt-in trial answers account-bound device requests. Only the
+      // selected peer may contribute frames to that request's reassembly.
+      if (this.#options.experimentalT8420Live === true && this.#options.cameraModel === "T8420"
+        && (info.address !== this.#remote.host || info.port !== this.#remote.port)) return false;
       this.stats.dataDatagrams++;
       if (!this.stats.firstDataHex) this.stats.firstDataHex = message.subarray(0, Math.min(message.length, 48)).toString("hex");
       const type = message.subarray(4, 6); const seq = message.readUInt16BE(6);
@@ -3593,6 +3598,22 @@ export class FirstPartyPpcsSession {
     const shape = `${command}:${signCode}:${size}:${type}`;
     if (!this.stats.frameShapes.includes(shape) && this.stats.frameShapes.length < 20) {
       this.stats.frameShapes.push(shape);
+    }
+
+    // The original standalone T8420 asks for this account-bound response during
+    // setup. Keep it inside the existing opt-in route and the observed channel
+    // zero clear CONTROL shape. It starts no media and changes no deadline.
+    if (command === 1152 && type === 2 && size === 8 && payload.length === 8
+      && header.subarray(10).equals(Buffer.from([1, 0, 0, 0, 0, 0]))
+      && payload.every(value => value === 0)
+      && t8420ClearLiveRoute({ enabled: this.#options.experimentalT8420Live, model: this.#options.cameraModel,
+        deviceType: this.#options.cameraDeviceType, stationModel: this.#options.stationModel,
+        channel: this.#options.channel, attached: this.#options.homeBaseAttached,
+        purpose: this.#options.purpose, accountId: this.#options.accountId })
+      && /^[\x21-\x7e]{1,128}$/.test(this.#options.accountId!)) {
+      const reply = Buffer.alloc(136);
+      reply.write(this.#options.accountId!, 8, 128, "ascii");
+      this.#sendCommand(1152, rawPayload(reply, 0, 0, [1, 0], 0));
     }
 
     // The exact HB3 doorbell returns a four-byte result with 128 zero padding
