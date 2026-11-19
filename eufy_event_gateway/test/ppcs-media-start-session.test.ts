@@ -83,13 +83,13 @@ async function peer(context: TestContext, attached = true, model = "T8113-Z", pu
     accountId: "synthetic-owner", maxSeconds: 120,
     resolveCipherKey: async () => Buffer.alloc(32, 1).toString("hex"), ...options });
   const receive = (packet: Buffer, port = 12345, address = "127.0.0.1") => socket.emit("message", packet, { address, port });
-  const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0, type = 0) => {
+  const frame = (command: number, payload: Buffer, channel = 1, result = false, sign = 0, type = 0, magic = 0) => {
     const packet = Buffer.alloc(24 + payload.length);
     packet.set([0xf1, 0xd0], 0); packet.writeUInt16BE(packet.length - 4, 2);
     packet.set([0xd1, type], 4);
     const sequence = inbound.get(type) ?? 0; packet.writeUInt16BE(sequence, 6); inbound.set(type, sequence + 1);
     packet.write("XZYH", 8); packet.writeUInt16LE(command, 12); packet.writeUInt32LE(payload.length, 14);
-    packet[20] = channel; packet[21] = sign; packet[22] = result ? 1 : 0;
+    packet[18] = magic; packet[20] = channel; packet[21] = sign; packet[22] = result ? 1 : 0;
     payload.copy(packet, 24); receive(packet);
   };
   const ack = (sequence: number, variant = "valid") => {
@@ -1379,6 +1379,48 @@ for (const variant of ["model", "type", "parent-type", "station", "channel", "pu
       f.frame(variant === "command" ? 1003 : 1350, reply, variant === "channel" ? 1 : 4,
         variant !== "not-result", variant === "sign" ? 8 : 0);
       assert.equal(f.session.stats.mediaStartResult, null);
+    } finally { f.session.close(); }
+  });
+}
+
+test("opted-in T8420 answers only the exact channel-zero device ping before media", async context => {
+  const f = await peer(context, false, "T8420", "media", "T8420", undefined, 0, 3,
+    { experimentalT8420Live: true });
+  const startsBeforePing = f.session.stats.mediaStartAttempts;
+  const replies = () => f.sent.filter(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1152);
+  try {
+    assert.equal(replies().length, 0);
+    f.frame(1152, Buffer.alloc(8), 0, false, 0, 2, 1);
+    assert.equal(replies().length, 1);
+    const reply = replies()[0]!;
+    assert.equal(reply.length, 160);
+    assert.deepEqual([...reply.subarray(18, 24)], [1, 0, 0, 0, 0, 0]);
+    assert.deepEqual(reply.subarray(24, 32), Buffer.alloc(8));
+    assert.equal(reply.subarray(32, 47).toString(), "synthetic-owner");
+    assert.ok(reply.subarray(47).every(value => value === 0));
+    for (const [data, channel, result, sign, type] of [
+      [Buffer.alloc(8), 1, false, 0, 2], [Buffer.alloc(8), 0, true, 0, 2],
+      [Buffer.alloc(8), 0, false, 1, 2], [Buffer.alloc(8), 0, false, 0, 0],
+      [Buffer.alloc(9), 0, false, 0, 2], [Buffer.alloc(8, 1), 0, false, 0, 2],
+    ] as const) f.frame(1152, data, channel, result, sign, type, 1);
+    assert.equal(replies().length, 1);
+    f.frame(1152, Buffer.alloc(8), 0, false, 0, 2, 1);
+    assert.equal(replies().length, 2);
+    assert.equal(f.session.stats.mediaStartAttempts, startsBeforePing);
+  } finally { f.session.close(); }
+  const count = replies().length;
+  f.frame(1152, Buffer.alloc(8), 0, false, 0, 2, 1);
+  assert.equal(replies().length, count);
+});
+
+for (const variant of ["disabled", "wrong-model", "wrong-type", "attached", "control", "account"]) {
+  test(`T8420 device-ping response refuses ${variant}`, async context => {
+    const f = await peer(context, variant === "attached", variant === "wrong-model" ? "T8420X" : "T8420",
+      variant === "control" ? "control" : "media", "T8420", undefined, 0, variant === "wrong-type" ? 37 : 3,
+      { experimentalT8420Live: variant !== "disabled", ...(variant === "account" ? { accountId: "invalid\0account" } : {}) });
+    try {
+      f.frame(1152, Buffer.alloc(8), 0, false, 0, 2, 1);
+      assert.ok(!f.sent.some(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1152));
     } finally { f.session.close(); }
   });
 }

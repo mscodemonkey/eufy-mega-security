@@ -3595,6 +3595,22 @@ export class FirstPartyPpcsSession {
       this.stats.frameShapes.push(shape);
     }
 
+    // The original standalone T8420 asks for this account-bound response during
+    // setup. Keep it inside the existing opt-in route and the observed channel
+    // zero clear CONTROL shape. It starts no media and changes no deadline.
+    if (command === 1152 && type === 2 && size === 8 && payload.length === 8
+      && header.subarray(10).equals(Buffer.from([1, 0, 0, 0, 0, 0]))
+      && payload.every(value => value === 0)
+      && t8420ClearLiveRoute({ enabled: this.#options.experimentalT8420Live, model: this.#options.cameraModel,
+        deviceType: this.#options.cameraDeviceType, stationModel: this.#options.stationModel,
+        channel: this.#options.channel, attached: this.#options.homeBaseAttached,
+        purpose: this.#options.purpose, accountId: this.#options.accountId })
+      && /^[\x21-\x7e]{1,128}$/.test(this.#options.accountId!)) {
+      const reply = Buffer.alloc(136);
+      reply.write(this.#options.accountId!, 8, 128, "ascii");
+      this.#sendCommand(1152, rawPayload(reply, 0, 0, [1, 0], 0));
+    }
+
     // The exact HB3 doorbell returns a four-byte result with 128 zero padding
     // bytes. Preserve its first scalar as evidence, including the observed -108
     // wait timeout. This does not authorize another start or change acceptance.
