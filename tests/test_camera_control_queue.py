@@ -127,7 +127,7 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
         root = PATH.parent
         namespace = {'HomeAssistantError': RuntimeError, 'CameraControlNotSentError': MODULE.CameraControlNotSentError, 'Any': object}
         for file, names in [('coordinator.py', {'submit_camera_control'}),
-                            ('switch.py', {'_async_set_enabled', '_async_set_motion'})]:
+                            ('switch.py', {'_async_set_enabled', '_async_set_motion', '_c35_enablement_pending'})]:
             tree = ast.parse((root / file).read_text())
             nodes = [n for cls in tree.body if isinstance(cls, ast.ClassDef)
                      for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -148,7 +148,9 @@ class CameraQueueTests(unittest.IsolatedAsyncioTestCase):
         coordinator.submit_camera_control = lambda *args: namespace['submit_camera_control'](coordinator,*args)
         start = asyncio.get_running_loop().time()
         for i in range(6):
-            switch = SimpleNamespace(serial=str(i),coordinator=coordinator)
+            switch = SimpleNamespace(serial=str(i),coordinator=coordinator,
+                                     camera=coordinator.cameras[str(i)])
+            switch._c35_enablement_pending = lambda target=switch: namespace['_c35_enablement_pending'](target)
             await namespace['_async_set_motion' if i<5 else '_async_set_enabled'](switch,True)
         self.assertLess(asyncio.get_running_loop().time()-start,0.2)
         self.assertEqual(results,[])
