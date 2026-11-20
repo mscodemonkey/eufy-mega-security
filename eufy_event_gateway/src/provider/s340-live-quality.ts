@@ -5,12 +5,14 @@
  */
 import type { ModelControlRoute } from "./model-control-trials.js";
 
-/** Reported mode-zero quality from one complete, unambiguous parameter snapshot. */
+/** Quality of the active view mode, taken from one complete parameter snapshot. */
 export interface S340LiveQualityRead {
 
   /** Native preference code, not a measured video resolution. */
   readonly quality: number;
-  readonly videoMode: 0;
+
+  /** Native mode selects the preference bank this reading belongs to. */
+  readonly videoMode: 0 | 12;
 }
 
 /** Offer native live-quality choices without promising delivered frame dimensions. */
@@ -24,7 +26,7 @@ export function isS340LiveQualityRoute(route: ModelControlRoute): boolean {
   return route.model === "T8170" && route.deviceType === 48 && route.homeBaseAttached
     && !route.selfPeer && route.peerModel === "T8030" && route.peerDeviceType === 18
     && Number.isInteger(route.channel) && route.channel !== null && route.channel >= 0 && route.channel <= 31
-    && route.liveQualityVideoMode === 0;
+    && (route.liveQualityVideoMode === 0 || route.liveQualityVideoMode === 12);
 }
 
 type InventoryParameter = { readonly param_type: number; readonly param_value: unknown };
@@ -43,9 +45,13 @@ export function readS340LiveViewMode(params: readonly InventoryParameter[]): 0 |
   return undefined;
 }
 
-/** Read only the live mode-zero value, refusing missing, duplicate or malformed evidence. */
+/**
+ * Read the active preference bank, refusing missing, duplicate or malformed
+ * evidence. A legacy scalar is accepted only for single view.
+ */
 export function readS340LiveQuality(params: readonly InventoryParameter[]): S340LiveQualityRead | undefined {
-  if (readS340LiveViewMode(params) !== 0) return undefined;
+  const videoMode = readS340LiveViewMode(params);
+  if (videoMode === undefined) return undefined;
   const qualities = params.filter(row => row.param_type === 2730);
   if (qualities.length !== 1) return undefined;
   let value = qualities[0]!.param_value;
@@ -59,12 +65,14 @@ export function readS340LiveQuality(params: readonly InventoryParameter[]): S340
     }
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    const mode = (value as Record<string, unknown>).mode_0;
+    const mode = (value as Record<string, unknown>)[videoMode === 12 ? "mode_1" : "mode_0"];
     value = mode !== null && typeof mode === "object" && !Array.isArray(mode)
       ? (mode as Record<string, unknown>).quality : undefined;
+  } else if (videoMode === 12) {
+    return undefined;
   }
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3
-    ? { quality: value, videoMode: 0 } : undefined;
+    ? { quality: value, videoMode } : undefined;
 }
 
 /** Build one absolute live-quality request without writing recording quality or lens mode. */
@@ -73,5 +81,5 @@ export function s340LiveQualityValue(route: ModelControlRoute, quality: number, 
     throw new Error("S340 live quality unavailable");
   }
   return JSON.stringify({ account_id: accountId, cmd: 2730, mChannel: route.channel, mValue3: 0,
-    payload: { quality, mode: 0, primary_view: 0, channel: route.channel } });
+    payload: { quality, mode: route.liveQualityVideoMode, primary_view: 0, channel: route.channel } });
 }
