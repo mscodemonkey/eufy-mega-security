@@ -118,12 +118,13 @@ export function diagnosticsPage(): string {
 <button id="motion-start">Listen for local motion</button><button id="motion-cancel">Cancel motion test</button>
 <pre id="motion-status" role="status">No local motion test started. No observations is inconclusive.</pre></details>
 <details><summary>Experimental C31 continuous-recording index test</summary>
-<p>Enable experimental model controls first, then select a standalone C31. Use this only if the camera already has continuous recordings. Stop its live viewers first. This experimental test asks the camera for its recent recording periods. We have not confirmed its behaviour on hardware. It sends no commands to change recording settings or download footage.</p>
+<p>Enable experimental model controls first, then select a standalone C31. Use this only if the camera already has continuous recordings. Stop its live viewers first. This experimental test asks the camera for its recent recording periods. The index query has been verified on a standalone T817L, device type 10031. Other C31 variants and HomeBase connections remain unconfirmed. It sends no commands to change recording settings or download footage.</p>
 <label><input id="index-consent" type="checkbox"> I agree to one experimental index query for the last thirty minutes. I understand that hardware behaviour is unconfirmed.</label>
 <button id="index-start">Check recording index once</button><button id="index-cancel">Cancel index test</button>
 <pre id="index-status" role="status">No index test started. A timeout is inconclusive.</pre></details>
 <details><summary>Experimental C31 continuous-recording preview</summary>
 <p>Select a standalone C31 and a time with existing continuous footage. Close its live viewers first. This retrieves ten seconds after that time, checks that the clip decodes, then stops the camera connection. It does not enable recording or change your camera settings.</p>
+<p>The player includes audio when the camera supplies it. If sound is missing, check the existing Live Audio selection in the device controls before reporting an audio fault. Leave microphone and recording settings unchanged.</p>
 <label>Recording time (your browser's local time) <input id="continuous-time" type="datetime-local" step="1"></label>
 <label><input id="continuous-consent" type="checkbox"> I agree to retrieve private footage from this camera.</label>
 <button id="continuous-start">Load ten-second preview</button><button id="continuous-cancel">Cancel preview</button>
