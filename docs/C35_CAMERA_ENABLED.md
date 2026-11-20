@@ -7,3 +7,10 @@ The configured EMS account must own the camera, gateway API authentication must 
 An existing camera is fine for a brief supervised test. Choose a time when you are comfortable with a temporary gap in coverage and can use the Eufy app to check or restore the setting. A spare camera is optional. Wait for all views and recordings to finish, note the camera's original state in the Eufy app and use one watched change to the opposite state. The gateway requires a fresh baseline, sends once and confirms its result using a fresh native state response. A missing or ambiguous confirmation leaves the outcome unknown and is never automatically retried. Confirm the camera's actual behaviour in the Eufy app, then restore its original state. If HA cannot restore it, use the Eufy app and check normal operation has resumed. Check the app before another HA attempt when the outcome is uncertain.
 
 Report whether the camera changed and returned to its original state. If the control is absent or reports an unknown outcome, stop without changing accounts or trying the spotlight. Keep credentials, identifiers and private footage out of the reply. Automated confirmation validates the reported setting, not physical security coverage.
+
+While an accepted change is pending, only this experimental switch becomes
+temporarily unavailable and its `setting_update_pending` attribute is true.
+Wait for that request to finish rather than clicking again. The last reported
+value is retained until confirmation, and the requested value is never shown
+as confirmed merely because the request was accepted. On an uncertain outcome,
+check the camera in the Eufy app before another attempt.
