@@ -38,7 +38,7 @@ capabilities:
           status: tested
           tested_on: 2026-10-10
           tested_by: mscodemonkey
-          notes: Exact standalone T817L type 10031 firmware 2.1.0.3, owned channel zero. Actual Home Assistant switch on/off matched fresh camera parameter readback and restored off. A controlled one-hundred-second enabled window appeared as a new continuous segment in the native SD timeline and played with the matching camera timestamp. Gateway continuous-footage playback remains unimplemented and the gateway currently serves event clips only. T817L121 and HomeBase routes are not covered.
+          notes: Exact standalone T817L type 10031 firmware 2.1.0.3, owned channel zero. Actual Home Assistant switch on/off matched fresh camera parameter readback and restored off. A controlled one-hundred-second enabled window appeared as a new continuous segment in the native SD timeline and played with the matching camera timestamp. The separate experimental ten-second EMS continuous preview now has verified video, audio and seeking, with independent confirmation from monkey-80 on v0.1.275 in issue 192 on 19 November 2026. This does not establish general continuous-footage browsing. T817L121 and HomeBase routes are not covered.
       read:
         parameter: 6010
       write:
