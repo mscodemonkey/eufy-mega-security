@@ -99,5 +99,5 @@ test("browser index consent is explicit and selection/page departure cancel the 
   assert.match(page, /id="index-consent" type="checkbox"/);
   assert.doesNotMatch(page, /id="index-consent"[^>]*checked/);
   assert.match(page, /pagehide', cancelIndex/); assert.match(page, /cancelIndex\(\); el\('index-consent'\).checked = false/);
-  assert.match(page, /not confirmed its behaviour on hardware/); assert.match(page, /A timeout is inconclusive/);
+  assert.match(page, /Other C31 variants and HomeBase connections remain unconfirmed/); assert.match(page, /A timeout is inconclusive/);
 });
