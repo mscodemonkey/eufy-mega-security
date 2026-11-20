@@ -27,11 +27,27 @@ export function isS340LiveQualityRoute(route: ModelControlRoute): boolean {
     && route.liveQualityVideoMode === 0;
 }
 
-/** Read only the live mode-zero value, refusing missing, duplicate or malformed evidence. */
-export function readS340LiveQuality(params: readonly { readonly param_type: number; readonly param_value: unknown }[]): S340LiveQualityRead | undefined {
+type InventoryParameter = { readonly param_type: number; readonly param_value: unknown };
+
+/**
+ * Read the S340 view mode independently of the reported quality preference.
+ * The model reports 0 for single view and 12 for dual view. Duplicate rows
+ * leave the mode unknown, even if their values agree.
+ */
+export function readS340LiveViewMode(params: readonly InventoryParameter[]): 0 | 12 | undefined {
   const modes = params.filter(row => row.param_type === 6243);
+  if (modes.length !== 1) return undefined;
+  const value = modes[0]!.param_value;
+  if (value === 0 || value === "0") return 0;
+  if (value === 12 || value === "12") return 12;
+  return undefined;
+}
+
+/** Read only the live mode-zero value, refusing missing, duplicate or malformed evidence. */
+export function readS340LiveQuality(params: readonly InventoryParameter[]): S340LiveQualityRead | undefined {
+  if (readS340LiveViewMode(params) !== 0) return undefined;
   const qualities = params.filter(row => row.param_type === 2730);
-  if (modes.length !== 1 || ![0, "0"].includes(modes[0]!.param_value as number | string) || qualities.length !== 1) return undefined;
+  if (qualities.length !== 1) return undefined;
   let value = qualities[0]!.param_value;
   if (typeof value === "string") {
     if (value.length > 4096) return undefined;

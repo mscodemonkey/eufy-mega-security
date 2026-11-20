@@ -17,7 +17,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 
 /** Own a synthetic attached camera, state changes and all session retirement. */
-async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
+async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number | null; conflictingMode?: boolean; qualityReported?: boolean; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "s340-quality-"));
   let quality = 0, writes = 0, reads = 0, stops = 0;
   const logs: string[] = [];
@@ -35,8 +35,11 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
         p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic", member: { admin_user_id: options.parentOwner ?? "synthetic-owner" }, params: [] },
       { device_sn: "synthetic-child", device_model: "T8170", device_type: 48, category: "eufy_security", parent_sn: "synthetic-parent",
         device_channel: 5, member: { admin_user_id: "synthetic-owner" }, params: writes && options.missingAfter || reads > 1 && options.missingBefore ? [] : [
-          { param_type: 6243, param_value: String(options.mode ?? 0) },
-          { param_type: 2730, param_value: Buffer.from(JSON.stringify({ mode_0: { quality }, mode_1: { quality: 2 } })).toString("base64") },
+          ...(options.mode === null ? [] : [{ param_type: 6243, param_value: String(options.mode ?? 0) }]),
+          ...(options.conflictingMode ? [{ param_type: 6243, param_value: "12" }] : []),
+          ...(options.qualityReported === false ? [] : [
+            { param_type: 2730, param_value: Buffer.from(JSON.stringify({ mode_0: { quality }, mode_1: { quality: 2 } })).toString("base64") },
+          ]),
         ] },
     ] };
   });
@@ -73,7 +76,12 @@ test("S340 quality is published only after one write and a fresh matching mode-z
 
 for (const [options, reason] of [
   [{ optIn: false }, "trial_disabled"], [{ owner: false }, "owner_account_required"],
-  [{ apiAuth: false }, "api_authentication_required"], [{ mode: 12 }, "live_mode_unconfirmed"],
+  [{ apiAuth: false }, "api_authentication_required"],
+  [{ mode: 12, qualityReported: false }, "dual_view_unsupported"],
+  [{ mode: null }, "live_mode_unconfirmed"],
+  [{ mode: 99 }, "live_mode_unconfirmed"],
+  [{ conflictingMode: true }, "live_mode_unconfirmed"],
+  [{ qualityReported: false }, "quality_unconfirmed"],
   [{ parentOwner: "foreign-owner" }, "parent_owner_mismatch"],
 ] as const) {
   test(`S340 quality admission rejects ${JSON.stringify(options)}`, async context => {
@@ -84,7 +92,9 @@ for (const [options, reason] of [
     assert.equal(admission.length, 1);
     assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}\n`));
     assert.ok(!admission[0]!.includes("synthetic-owner") && !admission[0]!.includes("synthetic-child"));
+    const readsBefore = f.reads();
     await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
+    assert.equal(f.reads(), readsBefore);
     assert.equal(f.writes(), 0);
   });
 }
