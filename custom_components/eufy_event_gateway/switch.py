@@ -124,7 +124,9 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
     """Expose reported master enablement through the coordinator's confirmed writes.
 
     The exact C35 trial starts disabled. Its reported setting is separate from
-    physical confirmation that the camera stopped or resumed monitoring.
+    physical confirmation that the camera stopped or resumed monitoring. While
+    its accepted change is pending, the C35 switch withdraws availability and
+    refuses another request instead of encouraging a second click.
     """
 
     _attr_translation_key = "camera_enabled"
@@ -143,8 +145,15 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
 
     @property
     def available(self) -> bool:
-        """Withdraw the switch when its fresh baseline or control route is unavailable."""
-        return super().available and self.camera.get("enableControlSupported") is True
+        """Withdraw a C35 switch until its accepted change finishes confirmation."""
+        return (super().available and self.camera.get("enableControlSupported") is True
+                and not self._c35_enablement_pending())
+
+    def _c35_enablement_pending(self) -> bool:
+        """Keep the pending guard specific to the exact experimental C35 identity."""
+        return (self.camera.get("model") == "T8110"
+                and self.camera.get("deviceType") == 10035
+                and self.coordinator.camera_controls.pending(self.serial, "enabled"))
 
     @property
     def extra_state_attributes(self) -> dict[str, bool]:
@@ -168,6 +177,10 @@ class EufyCameraEnabledSwitch(EufyGatewayEntity, SwitchEntity):
         await self._async_set_enabled(False)
 
     async def _async_set_enabled(self, enabled: bool) -> None:
+        if self._c35_enablement_pending():
+            raise HomeAssistantError(
+                "The C35 setting change is still pending. No additional request was accepted."
+            )
         self.coordinator.submit_camera_control(self.serial, "enabled", enabled)
 
 
