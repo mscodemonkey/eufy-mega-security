@@ -138,6 +138,12 @@ export function stationConnectedAfterRefreshFailure(
   return wasConnected && consecutiveFailures < STATION_REFRESH_DISCONNECT_FAILURES;
 }
 
+/** One request owns its fresh rows and the completion of subsequent discovery. */
+interface InventoryRefresh {
+  readonly observed: Promise<readonly MegaInventoryDevice[]>;
+  readonly settled: Promise<readonly MegaInventoryDevice[]>;
+}
+
 /** One accepted camera visit owns cancellable picture/name work and its original inventory binding. */
 interface PushPictureOwner {
 
@@ -995,8 +1001,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #stationRefreshTimer: ReturnType<typeof setInterval> | null = null;
   #inventoryRefreshTimer: ReturnType<typeof setInterval> | null = null;
   #inventoryReadyGeneration: number | null = null;
-  #inventoryRefresh: Promise<readonly MegaInventoryDevice[]> | null = null;
-  #inventoryTrailingRefresh: Promise<readonly MegaInventoryDevice[]> | null = null;
+  #inventoryRefresh: InventoryRefresh | null = null;
+  #inventoryTrailingRefresh: Promise<InventoryRefresh | null> | null = null;
   #inventoryKeyFailures = 0;
 
   #locks: E30LockProvider | null = null;
@@ -3939,7 +3945,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#invalidateLiveReads(serial, supportsStandaloneC31Presets(device, route, true)
         ? ["enabled", "privacy6250Value"] : ["enabled"]);
       for (let attempt = 0; attempt < 12; attempt += 1) {
-        const observed = await this.#refreshInventoryReads();
+        const observed = await this.#refreshInventoryReads(true, false, "observed");
         const refreshed = this.#confirmedCameraInventoryRead(observed, device, peer, "enabled", enabled);
         if (refreshed) {
           if (acknowledgementTimedOut) {
@@ -4958,7 +4964,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         for (let attempt = 0; attempt < 12; attempt++) {
           current();
           enterPhase("readback"); readbackAttempts++;
-          const observed = await scope.wait(() => this.#refreshInventoryReads());
+          const observed = await scope.wait(() => this.#refreshInventoryReads(true, false, "observed"));
           current();
           const refreshed = this.#confirmedCameraInventoryRead(observed, device, peer, "motionDetectionEnabled", enabled);
           if (refreshed) {
@@ -5995,39 +6001,57 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#dskRefreshes.clear();
   }
 
-  /** Join timer reads, but keep unrelated charging history outside post-command confirmation. */
   /**
-   * Reconcile inventory and return the rows observed in this request. Callers
-   * confirming writes must use these rows before trusting the retained cache.
+   * Join timer reads and queue fresh requests behind the previous flight.
+   * Switch confirmation can consume the current camera row after reconciliation.
+   * Other callers wait for discovery and publication as well.
    */
-  async #refreshInventoryReads(requireFresh = true, includeChargingDays = !requireFresh): Promise<readonly MegaInventoryDevice[]> {
+  async #refreshInventoryReads(
+    requireFresh = true, includeChargingDays = !requireFresh, phase: keyof InventoryRefresh = "settled",
+  ): Promise<readonly MegaInventoryDevice[]> {
     if (this.#rtcPreparation.gated) return [];
     const generation = this.#startupGeneration;
     const events = this.#events;
     if (this.#inventoryReadyGeneration !== generation || !events) return [];
     const pending = this.#inventoryRefresh;
-    if (pending) {
-      if (!requireFresh) return pending;
-      if (this.#inventoryTrailingRefresh) return this.#inventoryTrailingRefresh;
-      const trailing = pending.catch(() => undefined).then(() => {
+    if (!pending) return this.#startInventoryRefresh(events, generation, includeChargingDays)[phase];
+    if (!requireFresh) return pending[phase];
+    if (!this.#inventoryTrailingRefresh) {
+      const trailing = pending.settled.catch(() => undefined).then(() => {
         if (generation !== this.#startupGeneration) throw new Error("Inventory refresh cancelled");
         if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
-        return this.#refreshInventoryReads(false, includeChargingDays);
+        if (this.#rtcPreparation.gated || this.#inventoryReadyGeneration !== generation) return null;
+        return this.#inventoryRefresh ?? this.#startInventoryRefresh(events, generation, includeChargingDays);
       }).finally(() => {
         if (this.#inventoryTrailingRefresh === trailing) this.#inventoryTrailingRefresh = null;
       });
       this.#inventoryTrailingRefresh = trailing;
-      return trailing;
     }
-    const refresh = this.#runInventoryRefresh(events, generation, includeChargingDays).finally(() => {
+    const refresh = await this.#inventoryTrailingRefresh;
+    return refresh ? refresh[phase] : [];
+  }
+
+  /** Own both milestones from a single inventory request in this provider generation. */
+  #startInventoryRefresh(events: ProviderEvents, generation: number, includeChargingDays: boolean): InventoryRefresh {
+    const observation = Promise.withResolvers<readonly MegaInventoryDevice[]>();
+    const settled = this.#runInventoryRefresh(events, generation, includeChargingDays, observation.resolve).catch((error: unknown) => {
+      observation.reject(error);
+      throw error;
+    }).finally(() => {
       if (this.#inventoryRefresh === refresh) this.#inventoryRefresh = null;
     });
+    const refresh = { observed: observation.promise, settled };
+    void refresh.observed.catch(() => undefined);
+    void refresh.settled.catch(() => undefined);
     this.#inventoryRefresh = refresh;
     return refresh;
   }
 
-  /** Publish additive discovery before returning the unmerged inventory observation. */
-  async #runInventoryRefresh(events: ProviderEvents, generation: number, includeChargingDays: boolean): Promise<readonly MegaInventoryDevice[]> {
+  /** Reconcile current rows and publish discovery when newly found peers are ready. */
+  async #runInventoryRefresh(
+    events: ProviderEvents, generation: number, includeChargingDays: boolean,
+    observe: (devices: readonly MegaInventoryDevice[]) => void,
+  ): Promise<readonly MegaInventoryDevice[]> {
     const sequence = ++this.#e21FetchSequence;
     this.#e21Inventory.clear();
     for (const [serial, device] of this.#devices) {
@@ -6050,7 +6074,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#observeE21Inventory(refreshed, generation, sequence);
     this.#nvrObserveOwners(inventory);
     this.#observeLockInventory(inventory.devices);
-    if (refreshed.length === 0) { this.#syncNvrModeObserver(); return refreshed; }
+    if (refreshed.length === 0) {
+      observe(refreshed);
+      this.#syncNvrModeObserver();
+      return refreshed;
+    }
     try {
       for (const message of this.#t8417ReadShapes.observe(inventory.devices, generation, performance.now(), false)) {
         logger.info("camera_t8417_read_shape_observed", message);
@@ -6094,6 +6122,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         reads: liveReads ? { ...observed.reads, ...liveReads } : observed.reads,
       });
     }
+    observe(refreshed);
     const missingPeers = [...this.#devices.values()].filter((device) =>
       (!device.parentSerial || device.parentSerial === device.serial)
       && device.p2pDid && device.p2pConnection && !this.#dskKeys.has(device.serial)
