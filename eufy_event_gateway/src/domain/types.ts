@@ -165,7 +165,7 @@ export interface CameraState {
 
   /** Fixed admission result for exact quality trials, containing no account or parameter values. */
   readonly streamingQualityControlReason?: "trial_disabled" | "owner_account_required" | "api_authentication_required"
-    | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed"
+    | "account_binding_unavailable" | "route_unavailable" | "parent_owner_mismatch" | "live_mode_unconfirmed" | "dual_view_unsupported"
     | "route_unsupported" | "quality_unconfirmed" | "account_membership_unconfirmed" | "live_view_required" | "ready";
 
   /** Session-scoped values expire with live view and are not saved camera settings. */
