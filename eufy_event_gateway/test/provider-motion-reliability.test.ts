@@ -84,6 +84,32 @@ test("HB2 stops live media before its owned motion session and confirms fresh in
   } finally { await f.dispose(); }
 });
 
+for (const setting of ["motion", "enablement"] as const) {
+  for (const responseShape of ["camera omitted", "channel changed"] as const) {
+    test(`camera ${setting} refuses confirmation when inventory has ${responseShape}`, async context => {
+      const missing = responseShape === "camera omitted";
+      const f = await fixture(context, false, "T8010", false, "synthetic-base", 1, undefined, 1035);
+      const originalInventory = MegaClient.prototype.inventory;
+      const readback = context.mock.method(MegaClient.prototype, "inventory", async function (
+        this: MegaClient, ...args: Parameters<typeof originalInventory>
+      ) {
+        const response = await originalInventory.apply(this, args);
+        const devices = missing ? response.devices.filter(device => device.device_sn !== "camera")
+          : response.devices.map(device => device.device_sn === "camera" ? { ...device, device_channel: 2 } : device);
+        return { ...response, devices };
+      });
+      const writeEnablement = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => undefined);
+      try {
+        const operation = setting === "motion" ? f.provider.setCameraMotionDetection("camera", true)
+          : f.provider.setCameraEnabled("camera", true);
+        await assert.rejects(operation, missing ? /not confirmed by readback/ : /Camera binding changed before setting confirmation/);
+        assert.equal(readback.mock.callCount(), missing ? 12 : 1);
+        assert.equal(setting === "motion" ? f.write.mock.callCount() : writeEnablement.mock.callCount(), 1);
+      } finally { await f.dispose(); }
+    });
+  }
+}
+
 for (const stationModel of ["T8010", "T8030"]) {
   for (const acknowledgementLost of [false, true]) {
     test(`fresh motion inventory replaces the pre-write HomeBase cache: ${stationModel}, lost=${acknowledgementLost}`, async context => {

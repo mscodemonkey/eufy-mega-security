@@ -186,7 +186,8 @@ test("collector failure cannot replace the original provider error", async () =>
   await assert.rejects(downloadPushSnapshot({ download: async () => Buffer.from([1]) }, event, new Map(), broken), /format=binary.*missing_both/);
 });
 
-test("HTTP failures retain session-scoped references and no upstream body or private text", async () => {
+test("HTTP failures retain session-scoped references and no upstream body or private text", async context => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-20T21:05:33.404Z") });
   const first = new EventImageCapture();
   const second = new EventImageCapture();
   const { MediaHttpError } = await import("../src/mega/media-request-diagnostic.js");
@@ -200,14 +201,17 @@ test("HTTP failures retain session-scoped references and no upstream body or pri
     const archive = first.archive()!;
     assert.equal(archive.schemaVersion, 2);
     assert.equal(archive.samples.length, 0);
-    assert.equal(first.status().downloadFailureCount, 1);
     const receipt = archive.downloadFailures![0]!;
     assert.deepEqual(receipt.failure, { status: 404, attempts: 5, hop: "redirect", initialHost: "eufy-eu", finalHost: "object-store" });
     assert.equal(receipt.references.recording, createHmac("sha256", Buffer.from(archive.referenceSalt!, "hex"))
       .update("recording\0PRIVATE_RECORD").digest("hex"));
     assert.notEqual(receipt.references.picture, second.archive()!.downloadFailures![0]!.references.picture);
     assert.doesNotMatch(JSON.stringify(archive), /PRIVATE|example.invalid|redacted|bodyBase64/);
-    assert.doesNotMatch(JSON.stringify(first.status()), /referenceSalt|references|T8113|404/);
+    assert.deepEqual(first.status(), {
+      state: "active", sampleCount: 0, downloadFailureCount: 1, acceptingSamples: true,
+      captureEndsAt: "2026-11-20T21:35:33.404Z", expiresAt: "2026-11-20T22:05:33.404Z",
+      dropped: 0, skippedOversize: 0,
+    });
     Object.assign(receipt.failure, { status: 500 });
     assert.equal(first.archive()!.downloadFailures![0]!.failure.status, 404);
   } finally { first.close(); second.close(); }

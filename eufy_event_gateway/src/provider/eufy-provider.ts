@@ -995,8 +995,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #stationRefreshTimer: ReturnType<typeof setInterval> | null = null;
   #inventoryRefreshTimer: ReturnType<typeof setInterval> | null = null;
   #inventoryReadyGeneration: number | null = null;
-  #inventoryRefresh: Promise<void> | null = null;
-  #inventoryTrailingRefresh: Promise<void> | null = null;
+  #inventoryRefresh: Promise<readonly MegaInventoryDevice[]> | null = null;
+  #inventoryTrailingRefresh: Promise<readonly MegaInventoryDevice[]> | null = null;
   #inventoryKeyFailures = 0;
 
   #locks: E30LockProvider | null = null;
@@ -3939,9 +3939,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#invalidateLiveReads(serial, supportsStandaloneC31Presets(device, route, true)
         ? ["enabled", "privacy6250Value"] : ["enabled"]);
       for (let attempt = 0; attempt < 12; attempt += 1) {
-        await this.#refreshInventoryReads();
-        const refreshed = this.#devices.get(serial);
-        if (refreshed?.reads.enabled === enabled) {
+        const observed = await this.#refreshInventoryReads();
+        const refreshed = this.#confirmedCameraInventoryRead(observed, device, peer, "enabled", enabled);
+        if (refreshed) {
           if (acknowledgementTimedOut) {
             logger.warn("camera_enablement_acknowledgement_missing", "Camera enablement was confirmed by cloud readback after its acknowledgement timed out");
           }
@@ -4958,10 +4958,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         for (let attempt = 0; attempt < 12; attempt++) {
           current();
           enterPhase("readback"); readbackAttempts++;
-          await scope.wait(() => this.#refreshInventoryReads());
+          const observed = await scope.wait(() => this.#refreshInventoryReads());
           current();
-          const refreshed = this.#devices.get(serial);
-          if (refreshed?.reads.motionDetectionEnabled === enabled) {
+          const refreshed = this.#confirmedCameraInventoryRead(observed, device, peer, "motionDetectionEnabled", enabled);
+          if (refreshed) {
             if (acknowledgementTimedOut) logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
             confirmed = true;
             return this.#cameraIdentity(refreshed);
@@ -5996,11 +5996,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Join timer reads, but keep unrelated charging history outside post-command confirmation. */
-  async #refreshInventoryReads(requireFresh = true, includeChargingDays = !requireFresh): Promise<void> {
-    if (this.#rtcPreparation.gated) return;
+  /**
+   * Reconcile inventory and return the rows observed in this request. Callers
+   * confirming writes must use these rows before trusting the retained cache.
+   */
+  async #refreshInventoryReads(requireFresh = true, includeChargingDays = !requireFresh): Promise<readonly MegaInventoryDevice[]> {
+    if (this.#rtcPreparation.gated) return [];
     const generation = this.#startupGeneration;
     const events = this.#events;
-    if (this.#inventoryReadyGeneration !== generation || !events) return;
+    if (this.#inventoryReadyGeneration !== generation || !events) return [];
     const pending = this.#inventoryRefresh;
     if (pending) {
       if (!requireFresh) return pending;
@@ -6022,8 +6026,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return refresh;
   }
 
-  /** Merge routing peers before publishing additive discovery through the captured generation. */
-  async #runInventoryRefresh(events: ProviderEvents, generation: number, includeChargingDays: boolean): Promise<void> {
+  /** Publish additive discovery before returning the unmerged inventory observation. */
+  async #runInventoryRefresh(events: ProviderEvents, generation: number, includeChargingDays: boolean): Promise<readonly MegaInventoryDevice[]> {
     const sequence = ++this.#e21FetchSequence;
     this.#e21Inventory.clear();
     for (const [serial, device] of this.#devices) {
@@ -6046,7 +6050,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#observeE21Inventory(refreshed, generation, sequence);
     this.#nvrObserveOwners(inventory);
     this.#observeLockInventory(inventory.devices);
-    if (refreshed.length === 0) { this.#syncNvrModeObserver(); return; }
+    if (refreshed.length === 0) { this.#syncNvrModeObserver(); return refreshed; }
     try {
       for (const message of this.#t8417ReadShapes.observe(inventory.devices, generation, performance.now(), false)) {
         logger.info("camera_t8417_read_shape_observed", message);
@@ -6175,6 +6179,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         `model=${safeLogModel(device.model)} outcome=${motionOutcome}`);
       if (motionOutcome === "cloud-motion") events.sensorMotion(device.serial, true);
     }
+    return refreshed;
+  }
+
+  /**
+   * Confirm the setting from this response and publish the reconciled identity.
+   * A retained camera row can outlive the response that last contained it.
+   * A camera or parent rebinding ends confirmation for the original command.
+   */
+  #confirmedCameraInventoryRead(
+    observed: readonly MegaInventoryDevice[], device: MegaInventoryDevice, peer: MegaInventoryDevice,
+    field: "enabled" | "motionDetectionEnabled", value: boolean,
+  ): MegaInventoryDevice | undefined {
+    const current = this.#devices.get(device.serial);
+    const currentPeer = this.#devices.get(peer.serial);
+    if (!current || !currentPeer || inventoryBindingChanged(device, current) || inventoryBindingChanged(peer, currentPeer)) {
+      throw new Error("Camera binding changed before setting confirmation");
+    }
+    const fresh = observed.find(item => item.serial === device.serial);
+    return fresh && !inventoryBindingChanged(device, fresh) && fresh.reads[field] === value && current.reads[field] === value
+      ? current : undefined;
   }
 
   #inventoryMotionClock(device: MegaInventoryDevice, previous: MegaInventoryDevice | undefined,
