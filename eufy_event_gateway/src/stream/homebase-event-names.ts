@@ -104,6 +104,17 @@ function id(value: unknown): string {
 }
 
 /**
+ * Admit face crops and body crops that carry a positive person ID.
+ * The Android clip view can display a familiar roster match for either.
+ * The caller still needs a validated roster entry to return a name.
+ */
+function isPersonNameCrop(crop: Record<string, unknown>): boolean {
+  if (crop.detection_type === 1) return true;
+  return crop.detection_type === 2 && typeof crop.person_id === "number"
+    && Number.isInteger(crop.person_id) && crop.person_id > 0 && crop.person_id <= 2_147_483_647;
+}
+
+/**
  * Join only the requested type-7 child and day to its returned person records.
  * IDs remain opaque. Conflicting station ownership, duplicate records or roster
  * IDs reject the page. A missing person entry remains unresolved rather than
@@ -147,7 +158,7 @@ export function summarizeEventNameHistory(value: unknown, serial: string, statio
     if (crop.station_sn !== undefined && crop.station_sn !== stationSerial) throw new EventNameHistoryError("invalid_response", "crop_station");
     if (crop.device_sn !== undefined && crop.device_sn !== serial) throw new EventNameHistoryError("invalid_response", "crop_device");
     seen.add(identity);
-    if (crop.detection_type !== 1) continue;
+    if (!isPersonNameCrop(crop)) continue;
     personCrops++;
     const person = typeof crop.person_id === "number" ? roster.get(crop.person_id) : undefined;
     if (!person || typeof person.group_id !== "number" || !Number.isInteger(person.group_id) || person.group_id < 0 || person.group_id > 255 || typeof person.name !== "string"
@@ -183,7 +194,7 @@ export function selectEventNameHistory(value: unknown, serial: string, stationSe
   const names = new Set<string>();
   let personCrops = 0;
   for (const crop of rows(page, "record_crop_picture_info")) {
-    if (id(crop.record_id) !== reference.id || crop.detection_type !== 1) continue;
+    if (id(crop.record_id) !== reference.id || !isPersonNameCrop(crop)) continue;
     personCrops++;
     const person = roster.get(crop.person_id);
     if (person && person.person_id !== -1 && typeof person.group_id === "number" && Number.isInteger(person.group_id)

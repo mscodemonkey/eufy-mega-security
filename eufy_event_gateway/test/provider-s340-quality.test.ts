@@ -17,9 +17,9 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 
 /** Own a synthetic attached camera, state changes and all session retirement. */
-async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
+async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number | null; flipModeAt?: "baseline" | "confirmation"; conflictingMode?: boolean; qualityReported?: boolean; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "s340-quality-"));
-  let quality = 0, writes = 0, reads = 0, stops = 0;
+  let singleQuality = 0, dualQuality = 2, writes = 0, reads = 0, stops = 0;
   const logs: string[] = [];
   context.mock.method(process.stdout, "write", ((chunk: unknown) => {
     logs.push(String(chunk)); return true;
@@ -30,13 +30,18 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
   context.mock.method(MegaClient.prototype, "authenticatedBinding", () => () => true);
   context.mock.method(MegaClient.prototype, "inventory", async () => {
     reads++;
+    const flipMode = options.flipModeAt === "baseline" && reads > 1 || options.flipModeAt === "confirmation" && writes > 0;
+    const mode = flipMode ? 0 : options.mode;
     return { devices: [
       { device_sn: "synthetic-parent", device_model: "T8030", device_type: 18, category: "eufy_security",
         p2p_did: "TEST-12345678-TEST", p2p_conn: "synthetic", member: { admin_user_id: options.parentOwner ?? "synthetic-owner" }, params: [] },
       { device_sn: "synthetic-child", device_model: "T8170", device_type: 48, category: "eufy_security", parent_sn: "synthetic-parent",
         device_channel: 5, member: { admin_user_id: "synthetic-owner" }, params: writes && options.missingAfter || reads > 1 && options.missingBefore ? [] : [
-          { param_type: 6243, param_value: String(options.mode ?? 0) },
-          { param_type: 2730, param_value: Buffer.from(JSON.stringify({ mode_0: { quality }, mode_1: { quality: 2 } })).toString("base64") },
+          ...(mode === null ? [] : [{ param_type: 6243, param_value: String(mode ?? 0) }]),
+          ...(options.conflictingMode ? [{ param_type: 6243, param_value: "12" }] : []),
+          ...(options.qualityReported === false ? [] : [
+            { param_type: 2730, param_value: Buffer.from(JSON.stringify({ mode_0: { quality: singleQuality }, mode_1: { quality: dualQuality } })).toString("base64") },
+          ]),
         ] },
     ] };
   });
@@ -49,7 +54,12 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
   context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => {});
   context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { stops++; this.output.end(); });
   context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (change: CameraSettingChange, route: ModelControlRoute, dispatch: () => void) => {
-    assert.equal(route.liveQualityVideoMode, 0); assert.equal(route.channel, 5); dispatch(); writes++; quality = change.value as number;
+    assert.equal(route.liveQualityVideoMode, options.mode ?? 0);
+    assert.equal(route.channel, 5);
+    dispatch();
+    writes++;
+    if (route.liveQualityVideoMode === 12) dualQuality = change.value as number;
+    else singleQuality = change.value as number;
   });
   const identities = new Map<string, Parameters<ProviderEvents["camera"]>[0]>();
   const events = new Proxy({ camera: (value: Parameters<ProviderEvents["camera"]>[0]) => identities.set(value.serial, value) },
@@ -71,9 +81,38 @@ test("S340 quality is published only after one write and a fresh matching mode-z
   assert.equal(f.writes(), 1); assert.ok(f.reads() >= 3);
 });
 
+test("S340 dual-view quality is read and confirmed through its own preference bank", async context => {
+  const f = await fixture(context, { mode: 12 });
+  assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlSupported, true);
+  assert.equal(f.identities.get("synthetic-child")?.reportedSettings?.streamingQualityTier, 2);
+  const changed = await f.provider.setCameraStreamingQuality("synthetic-child", 3);
+  assert.equal(changed.reportedSettings?.streamingQualityTier, 3);
+  assert.equal(f.writes(), 1);
+  assert.ok(f.reads() >= 3);
+});
+
+test("S340 view mode changing during the fresh baseline blocks the requested write", async context => {
+  const f = await fixture(context, { mode: 12, flipModeAt: "baseline" });
+  await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
+  assert.equal(f.writes(), 0);
+  assert.equal(f.identities.get("synthetic-child")?.reportedSettings?.streamingQualityTier, 0);
+});
+
+test("S340 readback from another view mode cannot confirm a dual-view write", async context => {
+  const f = await fixture(context, { mode: 12, flipModeAt: "confirmation" });
+  await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 0), { code: "outcome_unknown" });
+  assert.equal(f.writes(), 1);
+  assert.equal(f.identities.get("synthetic-child")?.reportedSettings?.streamingQualityTier, null);
+});
+
 for (const [options, reason] of [
   [{ optIn: false }, "trial_disabled"], [{ owner: false }, "owner_account_required"],
-  [{ apiAuth: false }, "api_authentication_required"], [{ mode: 12 }, "live_mode_unconfirmed"],
+  [{ apiAuth: false }, "api_authentication_required"],
+  [{ mode: 12, qualityReported: false }, "quality_unconfirmed"],
+  [{ mode: null }, "live_mode_unconfirmed"],
+  [{ mode: 99 }, "live_mode_unconfirmed"],
+  [{ conflictingMode: true }, "live_mode_unconfirmed"],
+  [{ qualityReported: false }, "quality_unconfirmed"],
   [{ parentOwner: "foreign-owner" }, "parent_owner_mismatch"],
 ] as const) {
   test(`S340 quality admission rejects ${JSON.stringify(options)}`, async context => {
@@ -84,7 +123,9 @@ for (const [options, reason] of [
     assert.equal(admission.length, 1);
     assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}\n`));
     assert.ok(!admission[0]!.includes("synthetic-owner") && !admission[0]!.includes("synthetic-child"));
+    const readsBefore = f.reads();
     await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
+    assert.equal(f.reads(), readsBefore);
     assert.equal(f.writes(), 0);
   });
 }

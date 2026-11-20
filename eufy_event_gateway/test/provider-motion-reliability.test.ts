@@ -84,6 +84,79 @@ test("HB2 stops live media before its owned motion session and confirms fresh in
   } finally { await f.dispose(); }
 });
 
+for (const setting of ["motion", "enablement"] as const) {
+  for (const responseShape of ["camera omitted", "channel changed"] as const) {
+    test(`camera ${setting} refuses confirmation when inventory has ${responseShape}`, async context => {
+      const missing = responseShape === "camera omitted";
+      const f = await fixture(context, false, "T8010", false, "synthetic-base", 1, undefined, 1035);
+      const originalInventory = MegaClient.prototype.inventory;
+      const readback = context.mock.method(MegaClient.prototype, "inventory", async function (
+        this: MegaClient, ...args: Parameters<typeof originalInventory>
+      ) {
+        const response = await originalInventory.apply(this, args);
+        const devices = missing ? response.devices.filter(device => device.device_sn !== "camera")
+          : response.devices.map(device => device.device_sn === "camera" ? { ...device, device_channel: 2 } : device);
+        return { ...response, devices };
+      });
+      const writeEnablement = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => undefined);
+      try {
+        const operation = setting === "motion" ? f.provider.setCameraMotionDetection("camera", true)
+          : f.provider.setCameraEnabled("camera", true);
+        await assert.rejects(operation, missing ? /not confirmed by readback/ : /Camera binding changed before setting confirmation/);
+        assert.equal(readback.mock.callCount(), missing ? 12 : 1);
+        assert.equal(setting === "motion" ? f.write.mock.callCount() : writeEnablement.mock.callCount(), 1);
+      } finally { await f.dispose(); }
+    });
+  }
+}
+
+for (const setting of ["motion", "enablement"] as const) {
+  test(`camera ${setting} confirms without waiting for a different HomeBase's connection key`, async context => {
+    const f = await fixture(context, false, "T8010", false, "synthetic-base", 1, undefined, 1035);
+    const originalInventory = MegaClient.prototype.inventory;
+    const inventory = context.mock.method(MegaClient.prototype, "inventory", async function (this: MegaClient, ...args: Parameters<typeof originalInventory>) {
+      const response = await originalInventory.apply(this, args);
+      return { ...response, devices: [...response.devices, {
+        device_sn: "different-base", device_model: "T8030", device_type: 18, category: "eufy_security",
+        p2p_did: "TEST-12345678-TEST", p2p_conn: "different-route", member: { admin_user_id: "owner" },
+      }] };
+    });
+    const discovery = Promise.withResolvers<{ "different-base": { key: string; expiresAt: null } }>();
+    const keys = context.mock.method(MegaClient.prototype, "dskKeys", () => discovery.promise);
+    const writeEnablement = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => { f.setEnabled(false); });
+    let completed = false;
+    const setSwitch = () => setting === "motion" ? f.provider.setCameraMotionDetection("camera", false)
+      : f.provider.setCameraEnabled("camera", false);
+    const confirmation = setSwitch().then(identity => {
+        assert.equal(setting === "motion" ? identity.motionDetectionEnabled : identity.enabled, false);
+        completed = true;
+      });
+    void confirmation.catch(() => undefined);
+    let nextConfirmation: Promise<unknown> | undefined;
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(keys.mock.callCount(), 1);
+      assert.equal(completed, true);
+      assert.equal(inventory.mock.callCount(), 1);
+
+      let nextCompleted = false;
+      nextConfirmation = setSwitch().then(() => { nextCompleted = true; });
+      void nextConfirmation.catch(() => undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(setting === "motion" ? f.write.mock.callCount() : writeEnablement.mock.callCount(), 2);
+      assert.equal(inventory.mock.callCount(), 1);
+      assert.equal(nextCompleted, false);
+      discovery.resolve({ "different-base": { key: "synthetic", expiresAt: null } });
+      await nextConfirmation;
+      assert.equal(inventory.mock.callCount(), 2);
+      assert.equal(keys.mock.callCount(), 1);
+    } finally {
+      discovery.resolve({ "different-base": { key: "synthetic", expiresAt: null } });
+      try { await Promise.all([confirmation, nextConfirmation]); } finally { await f.dispose(); }
+    }
+  });
+}
+
 for (const stationModel of ["T8010", "T8030"]) {
   for (const acknowledgementLost of [false, true]) {
     test(`fresh motion inventory replaces the pre-write HomeBase cache: ${stationModel}, lost=${acknowledgementLost}`, async context => {

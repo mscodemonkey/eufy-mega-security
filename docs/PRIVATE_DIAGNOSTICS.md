@@ -234,6 +234,9 @@ At most three metadata reads are scheduled around 10 seconds, one minute and nin
 minutes after the event. Time spent reading does not move the later deadlines.
 Active views and recording reservations are left alone.
 
+Name recovery uses the original recording's face crops and person crops with an
+explicit familiar-person link in the HomeBase roster.
+
 The provider's `push_received`, `homebase_name_recovered` and
 `homebase_name_recovery_unavailable` lines include `visit_ref`. Match it within
 the same gateway run to identify which notification a delayed result belongs to.
