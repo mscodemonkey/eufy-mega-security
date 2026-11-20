@@ -4151,8 +4151,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(serial);
     const route = device ? ppcsStreamRoute(device, this.#devices) : null;
     const peer = route?.peer;
-    const profile = device && route ? cameraSettingProfile(this.#modelTrialRoute(device, route), change.setting) : null;
-    if (!device || !route || !peer || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
+    const settingRoute = device && route ? this.#modelTrialRoute(device, route) : null;
+    const profile = settingRoute ? cameraSettingProfile(settingRoute, change.setting) : null;
+    if (!device || !route || !peer || !settingRoute || !profile || !device.adminUserId || this.#recordingClosing) throw new CameraSettingError("unavailable");
     const optInSetting = profile.experimental === true || change.setting === "lightBrightness" || change.setting === "manualFloodlight"
       || profile.form === "motion-control" || profile.form === "solo-sensitivity" || profile.form === "solo-quality" || profile.form === "attached-quality" || profile.form === "privacy";
     if (["solo-sensitivity", "solo-quality", "attached-quality", "privacy"].includes(profile.form) && !this.config.apiAuthenticationConfigured) throw new CameraSettingError("unavailable");
@@ -4253,14 +4254,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             }
           }
           clear(); await this.#refreshInventoryReads(); check();
-          if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveViewMode !== 0) throw new CameraSettingError("unavailable");
+          if (profile.form === "attached-quality"
+            && this.#devices.get(serial)?.reads.s340LiveViewMode !== settingRoute.liveQualityVideoMode) throw new CameraSettingError("unavailable");
           return this.#devices.get(serial)?.reads[field];
         },
         write: async onDispatch => {
           const owned = await open(); check();
-          const observed = await owned.writeReviewedCameraSetting(change, this.#modelTrialRoute(device, route), () => {
+          const observed = await owned.writeReviewedCameraSetting(change, settingRoute, () => {
             check();
-            if (profile.form === "attached-quality" && this.#devices.get(serial)?.reads.s340LiveViewMode !== 0) throw new CameraSettingError("unavailable");
+            if (profile.form === "attached-quality"
+              && this.#devices.get(serial)?.reads.s340LiveViewMode !== settingRoute.liveQualityVideoMode) throw new CameraSettingError("unavailable");
             onDispatch(); dispatched = true;
           });
           if (profile.form === "attached-light") {
@@ -4824,7 +4827,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #modelTrialRoute(device: MegaInventoryDevice, route: NonNullable<ReturnType<typeof ppcsStreamRoute>>): ModelControlRoute {
     return { model: device.model, deviceType: device.deviceType, channel: device.channel,
       homeBaseAttached: route.homeBaseAttached, peerModel: route.peer.model,
-      ...(device.reads.s340LiveViewMode === 0 ? { liveQualityVideoMode: 0 } : {}),
+      ...(device.reads.s340LiveViewMode === undefined ? {} : { liveQualityVideoMode: device.reads.s340LiveViewMode }),
       ...(route.homeBaseAttached ? { peerDeviceType: route.peer.deviceType } : {}), selfPeer: route.peer.serial === device.serial };
   }
 
@@ -6383,7 +6386,6 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
       : !settingRouteReady || settingRoute === null ? "route_unavailable"
       : route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
-      : device.reads.s340LiveViewMode === 12 ? "dual_view_unsupported"
       : device.reads.s340LiveViewMode === undefined ? "live_mode_unconfirmed"
       : cameraSettingProfile(settingRoute, "streamingQuality")?.form !== "attached-quality" ? "route_unsupported"
       : device.reads.streamingQualityTier === undefined ? "quality_unconfirmed" : "ready";

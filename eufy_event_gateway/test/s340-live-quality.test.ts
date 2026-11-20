@@ -35,14 +35,28 @@ test("S340 mode-zero reads accept scalar and encoded quality without confusing r
   assert.equal(readS340LiveQuality([{ param_type: 6243, param_value: "0" }, { param_type: 2731, param_value: "3" }]), undefined);
 });
 
-test("only an exact HomeBase 3 S340 with fresh mode-zero evidence gains quality authority", () => {
+test("S340 dual view reads only an explicit quality for the dual-view bank", () => {
+  const quality = { mode_0: { quality: 3 }, mode_1: { quality: 1 } };
+  for (const raw of [quality, JSON.stringify(quality), Buffer.from(JSON.stringify(quality)).toString("base64")]) {
+    assert.deepEqual(readS340LiveQuality(params(raw, 12)), { quality: 1, videoMode: 12 });
+  }
+  for (const raw of [1, "1", { mode_0: { quality: 1 } }, { mode_1: { quality: "1" } }]) {
+    assert.equal(readS340LiveQuality(params(raw, 12)), undefined);
+  }
+  const dualRoute = { ...route, liveQualityVideoMode: 12 };
+  assert.equal(cameraSettingProfile(dualRoute, "streamingQuality")?.form, "attached-quality");
+  assert.deepEqual(JSON.parse(s340LiveQualityValue(dualRoute, 3, "synthetic-owner")).payload,
+    { quality: 3, mode: 12, primary_view: 0, channel: 5 });
+});
+
+test("only an exact HomeBase 3 S340 with a confirmed view mode gains quality authority", () => {
   assert.equal(isS340LiveQualityRoute(route), true);
   assert.equal(cameraSettingProfile(route, "streamingQuality")?.form, "attached-quality");
   const { liveQualityVideoMode: _missing, ...missingMode } = route;
   assert.equal(cameraSettingProfile(missingMode, "streamingQuality"), null);
   for (const changed of [{ model: "T8170E" }, { deviceType: 88 }, { peerModel: "T9000" }, { peerDeviceType: 27 },
     { homeBaseAttached: false }, { selfPeer: true }, { channel: -1 }, { channel: 32 }, { channel: 1.5 },
-    { liveQualityVideoMode: 12 }]) {
+    { liveQualityVideoMode: 1 }]) {
     const denied = { ...route, ...changed };
     assert.equal(isS340LiveQualityRoute(denied), false);
     assert.equal(cameraSettingProfile(denied, "streamingQuality"), null);
