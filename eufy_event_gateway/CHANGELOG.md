@@ -10,6 +10,10 @@
 - Explain why the S340 streaming quality control may be unavailable. On the optional HomeBase 3 trial, use the camera's current single-view or dual-view preference. Actual capture resolution still needs confirmation.
 - Recover a familiar name for a HomeBase recording when its person crop has a valid match in the HomeBase roster.
 - Document the confirmed 4G LTE Cam S330 discovery, motion and retained snapshots separately from its open live video and event-picture problems.
+- Include a privacy-safe failure reason when automatic HomeBase event-picture recovery cannot retrieve the matching thumbnail. Intermittent missed pictures remain under investigation.
+- Select the standalone LTE S330's existing event entities through the device catalogue. Diagnostics show whether the profile matched, the route differed or the connection could not be resolved.
+- Move inventory normalization and merge rules into a separate module while preserving existing refresh, entity and session behaviour.
+- Add worked catalogue-onboarding examples and repeatable synthetic scaling tests for device inventory and shared media sessions.
 
 ## 0.1.275
 
