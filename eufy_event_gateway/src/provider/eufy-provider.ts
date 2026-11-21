@@ -76,7 +76,7 @@ import { observeOwnedStartup } from "../stream/owned-startup-recovery.js";
 import { withCameraControlDeadline } from "./camera-control-deadline.js";
 import { HomeBaseCommandAcknowledgementTimeoutError, HomeBasePpcsSession, type HomeBaseChildParam, type HomeBasePpcsState, type HomeBaseStorageDiagnostic } from "../stream/homebase-ppcs.js";
 import type { SensorContactObservation } from "../stream/sensor-status-notification.js";
-import { cameraCapabilityLogSummaries, describeCameraCapabilities, cameraDetectionKinds, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
+import { cameraCapabilityLogSummaries, describeCameraCapabilities, cameraDetectionKinds, resolveCameraEventProfile, isSupportedCameraType, describeDeviceCapabilities, deviceCapabilityLogSummaries } from "./device-capabilities-core.js";
 import { generalRtcBinding, GeneralRtcTrial, GeneralRtcPinLimiter, type GeneralRtcTrialLease, type GeneralRtcBinding } from "./general-rtc-trial.js";
 import { GeneralRtcError } from "../stream/general-rtc-protocol.js";
 import { catalogueIntegrationStatus, hasMainsBatterySentinel } from "./camera-capability-core.js";
@@ -5813,11 +5813,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       }
     }
     const dskPeerSerials = new Set(this.#dskKeys.keys());
+    const eventProfiles = new Map<string, ReturnType<typeof resolveCameraEventProfile>>();
     for (const device of devices) {
       const normalNvr = this.#normalNvrIdentity(device);
       if (normalNvr) events.camera(normalNvr);
       else if (isSupportedMegaCamera(device)) {
-        const identity = this.#cameraIdentity(device);
+        const eventProfile = resolveCameraEventProfile(device, ppcsStreamRoute(device, this.#devices)?.homeBaseAttached);
+        eventProfiles.set(device.serial, eventProfile);
+        const identity = this.#cameraIdentity(device, eventProfile);
         events.camera(identity);
         if (device.model === "T8170" && device.deviceType === 48) {
           logger.info("camera_s340_quality_admission", `model=T8170 reason=${identity.streamingQualityControlReason}`);
@@ -5830,6 +5833,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (sensor) events.sensor(sensor);
     }
     const manifests = devices.map((device) => describeCameraCapabilities(device, {
+      eventProfile: eventProfiles.get(device.serial) ?? null,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       routeReady: isPpcsRouteReady(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
@@ -6149,10 +6153,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     const devices = [...this.#devices.values()];
     const dskPeers = new Set(this.#dskKeys.keys());
+    const eventProfiles = new Map<string, ReturnType<typeof resolveCameraEventProfile>>();
     for (const device of devices) {
       const normalNvr = this.#normalNvrIdentity(device);
       if (normalNvr) events.camera(normalNvr);
-      else if (isSupportedMegaCamera(device)) events.camera(this.#cameraIdentity(device));
+      else if (isSupportedMegaCamera(device)) {
+        const eventProfile = resolveCameraEventProfile(device, ppcsStreamRoute(device, this.#devices)?.homeBaseAttached);
+        eventProfiles.set(device.serial, eventProfile);
+        events.camera(this.#cameraIdentity(device, eventProfile));
+      }
       else { const trial = this.#nvrTrialIdentity(device); if (trial) events.camera(trial); }
     }
     for (const device of devices) {
@@ -6173,6 +6182,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     events.inventory(inventoryDiagnostics(devices));
     this.#syncNvrModeObserver();
     events.cameraCapabilities(devices.map((device) => describeCameraCapabilities(device, {
+      eventProfile: eventProfiles.get(device.serial) ?? null,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
       routeReady: isPpcsRouteReady(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
@@ -6399,7 +6409,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
   }
 
-  #cameraIdentity(device: MegaInventoryDevice): CameraIdentity {
+  #cameraIdentity(device: MegaInventoryDevice, eventProfile?: ReturnType<typeof resolveCameraEventProfile>): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
     const settingRoute = route ? this.#modelTrialRoute(device, route) : null;
@@ -6428,7 +6438,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       : manualLightProfile.experimental && this.#client.authenticatedBinding() === null ? "account_binding_unavailable"
       : manualLightProfile.experimental && route?.peer.adminUserId !== device.adminUserId ? "parent_owner_mismatch"
       : device.reads.manualFloodlightEnabled === undefined ? "state_unavailable" : "ready";
-    const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached);
+    const supportedDetections = cameraDetectionKinds(device, route?.homeBaseAttached, eventProfile);
     const s220Quality = device.model === "T8134" && experimentalSettingsReady && settingRouteReady && this.config.apiAuthenticationConfigured === true
       && this.#client.authenticatedBinding() !== null && settingRoute !== null
       && cameraSettingProfile(settingRoute, "streamingQuality") !== null

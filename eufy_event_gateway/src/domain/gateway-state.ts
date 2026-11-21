@@ -541,7 +541,10 @@ export class GatewayState extends EventEmitter {
     return {
       schema: 1,
       inventory: this.#inventoryDiagnostics.map(({ serial: _serial, name: _name, ...device }) => structuredClone(device)),
-      cameras: this.#cameraCapabilities.map(({ serial: _serial, ...camera }) => structuredClone(camera)),
+      cameras: this.#cameraCapabilities.map(({ serial: _serial, eventProfile, ...camera }) => ({
+        ...structuredClone(camera),
+        ...(eventProfile ? { eventProfile: { profile: eventProfile.profile, reason: eventProfile.reason } } : {}),
+      })),
       devices: this.#deviceCapabilities.map(({ serial: _serial, ...device }) => structuredClone(device)),
       events: this.#pushDiagnostics.map(({ receivedAt, cameraSerial, cameraName: _cameraName, personName: _personName, ...event }) => {
         const inventory = inventoryBySerial.get(cameraSerial);
