@@ -24,7 +24,8 @@ for (const read of [false, true]) for (const motor of [false, true]) {
     const classic = classicLockInventory([{ device_sn: "classic", device_model: "T8520", device_type: 51, category: "eufy_security",
       params: [{ param_type: 6000, param_value: "4" }] }], true, Date.now())[0]!;
     const e30: SmartLockState = { serial: "e30", name: "Fixture", model: "T85F1", state: "locked", available: true, batteryPercent: 70, stateObservedAt: new Date().toISOString() };
-    state.replaceLocks([classic, e30]);
+    const c33: SmartLockState = { ...e30, serial: "c33", model: "T85L0", readOnly: true, observationSource: "device_query" };
+    state.replaceLocks([classic, e30, c33]);
     let calls = 0;
     const provider = { setLockState: async () => { calls++; return classic; }, refreshLock: async () => { calls++; return classic; }, setLockSetting: async () => { calls++; return classic; } } as unknown as CameraProvider;
     const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "fixture", experimentalModelControls: read, experimentalE30Locks: motor },
@@ -34,7 +35,7 @@ for (const read of [false, true]) for (const motor of [false, true]) {
       await server.listen(); const root = `http://127.0.0.1:${server.port}`;
       const headers = { authorization: "Bearer fixture", "content-type": "application/json" };
       assert.equal((await fetch(root + "/api/locks")).status, 401);
-      const expected = [...(read ? ["classic"] : []), ...(motor ? ["e30"] : [])].sort();
+      const expected = [...(read ? ["classic"] : []), ...(motor ? ["e30", "c33"] : [])].sort();
       const body = await (await fetch(root + "/api/locks", { headers })).json() as { locks: SmartLockState[] };
       assert.deepEqual(body.locks.map(lock => lock.serial).sort(), expected);
       for (const [endpoint, value] of [["state", { locked: true }], ["settings", { setting: "autoLock", value: true }], ["refresh", {}]] as const) {
@@ -49,7 +50,7 @@ for (const read of [false, true]) for (const motor of [false, true]) {
       const first = decoder.decode((await reader.read()).value);
       const ready = JSON.parse(first.split("data: ")[1]!.split("\n")[0]!) as { locks: SmartLockState[] };
       assert.deepEqual(ready.locks.map(lock => lock.serial).sort(), expected);
-      state.replaceLocks([classic, e30]);
+      state.replaceLocks([classic, e30, c33]);
       const next = decoder.decode((await reader.read()).value);
       const replacement = JSON.parse(next.split("data: ")[1]!.split("\n")[0]!) as { locks: SmartLockState[] };
       assert.deepEqual(replacement.locks.map(lock => lock.serial).sort(), expected);

@@ -242,7 +242,8 @@ class GatewayClient:
             state["firmware"] = version.strip() if isinstance(version, str) and len(version) <= 100 and version.strip() else None
         if value["model"] != "T85F1":
             source = value.get("observationSource")
-            if value.get("readOnly") is not True or source not in ("cloud_inventory", "device_query"):
+            expected_source = "device_query" if value["model"] == "T85L0" else "cloud_inventory"
+            if value.get("readOnly") is not True or source != expected_source:
                 raise GatewayClientError("Gateway returned an invalid read-only lock profile")
             battery = state["batteryPercent"]
             if battery is not None and (type(battery) is not int or not 0 <= battery <= 100):

@@ -124,7 +124,8 @@ class ClassicLockEntitiesTests(unittest.IsolatedAsyncioTestCase):
         result = project(row)
         self.assertTrue(result["readOnly"])
         self.assertEqual(result["observationSource"], "device_query")
-        for change in ({"readOnly": None}, {"observationSource": "device"}, {"observationSource": None}):
+        for change in ({"readOnly": None}, {"observationSource": "device"}, {"observationSource": None},
+                       {"observationSource": "cloud_inventory"}, {"model": "T8520"}):
             with self.assertRaises(ValueError):
                 project({**row, **change})
 
