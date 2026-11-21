@@ -7,6 +7,9 @@ category: camera
 integration:
   status: ready_to_test
   handler: camera
+  event_profile:
+    id: motion-person-pet-vehicle-sound
+    connection: direct
 models:
   - T86P2
   - T86P2121

@@ -22,6 +22,7 @@ const supportStatuses = ["tested", "reported", "mixed", "declared", "failing", "
 const connectionPattern = /^(?:direct|T[A-Z0-9]+)$/;
 const simplifiedCapabilityFields = new Set(["connections", "requires_parameter", "read", "write", "values", "notes", "source"]);
 const capabilityConnectionFields = new Set(["status", "tested_on", "tested_by", "notes"]);
+const cameraEventProfileIds = ["motion-person-pet-vehicle-sound"];
 
 function isDeviceFile(file) {
   return deviceExtensions.some((extension) => file.endsWith(extension));
@@ -103,7 +104,7 @@ function validateSimplifiedDevice(file, record) {
   if (!integration || typeof integration !== "object" || Array.isArray(integration)) {
     errors.push(`${file}: integration must be a map`);
   } else {
-    const allowedIntegrationFields = new Set(["status", "handler"]);
+    const allowedIntegrationFields = new Set(["status", "handler", "event_profile"]);
     for (const key of Object.keys(integration)) {
       if (!allowedIntegrationFields.has(key)) errors.push(`${file}: integration has unknown field ${key}`);
     }
@@ -118,6 +119,19 @@ function validateSimplifiedDevice(file, record) {
     }
     if (["supported", "ready_to_test"].includes(integration.status) && !Number.isSafeInteger(record.device_type)) {
       errors.push(`${file}: ${integration.status} integration must have a numeric device_type`);
+    }
+  }
+  if (integration?.event_profile !== undefined) {
+    const binding = integration.event_profile;
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)
+      || Object.keys(binding).some((key) => key !== "id" && key !== "connection")
+      || !cameraEventProfileIds.includes(binding.id) || binding.connection !== "direct") {
+      errors.push(`${file}: integration event_profile must name a known profile and the direct connection`);
+    }
+    if (integration.handler !== "camera" || !["supported", "ready_to_test"].includes(integration.status)
+      || !Array.isArray(record.models) || typeof record.models[0] !== "string"
+      || record.models[0].length === 0 || !Number.isSafeInteger(record.device_type)) {
+      errors.push(`${file}: integration event_profile requires an admitted camera with a primary model and numeric device_type`);
     }
   }
   if (record.aliases !== undefined
@@ -250,10 +264,17 @@ function validateSimplifiedDevice(file, record) {
 function validateIdentityKeys(devices) {
   const errors = [];
   const recordsByPrimaryModel = new Map();
+  const eventProfileFiles = new Map();
   for (const device of devices) {
     const primaryModel = deviceModels(device.record)?.[0];
     if (!primaryModel) continue;
     const key = String(primaryModel).toLowerCase();
+    if (device.record.integration?.event_profile) {
+      const bindingKey = JSON.stringify([key, device.record.device_type, device.record.integration.event_profile.connection]);
+      const prior = eventProfileFiles.get(bindingKey);
+      if (prior) errors.push(`${device.file}: duplicate event_profile identity also bound in ${prior}`);
+      else eventProfileFiles.set(bindingKey, device.file);
+    }
     const records = recordsByPrimaryModel.get(key) ?? [];
     records.push(device);
     recordsByPrimaryModel.set(key, records);
@@ -330,6 +351,15 @@ function runtimeModule(devices) {
       return [...primary, ...alternates];
     })
     .sort((left, right) => left.deviceType - right.deviceType || left.id.localeCompare(right.id));
+  const eventProfiles = devices.flatMap(({ record }) => {
+    const binding = record.integration.event_profile;
+    return binding ? [{
+      model: record.models[0].toUpperCase(),
+      deviceType: record.device_type,
+      connection: binding.connection,
+      profile: binding.id,
+    }] : [];
+  });
   const typesForHandler = (handler) => [...new Set(records
     .filter(({ status, handler: candidate }) => candidate === handler && status !== "recognised")
     .map(({ deviceType }) => deviceType))].sort((left, right) => left - right);
@@ -364,6 +394,20 @@ export interface GeneratedCatalogueDevice {
 
 /** Every typed device known to the contributor-maintained catalogue. */
 export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = ${JSON.stringify(records, null, 2)} as const;
+
+/** Implemented event exposure profiles accepted by the catalogue validator. */
+export type CameraEventProfileId = ${cameraEventProfileIds.map((id) => JSON.stringify(id)).join(" | ")};
+
+/** Exact primary model and connection eligible for an existing event exposure profile. */
+export interface CameraEventProfileBinding {
+  readonly model: string;
+  readonly deviceType: number;
+  readonly connection: "direct";
+  readonly profile: CameraEventProfileId;
+}
+
+/** Bindings explicitly selected by admitted catalogue records. */
+export const GENERATED_CAMERA_EVENT_PROFILES: readonly CameraEventProfileBinding[] = ${JSON.stringify(eventProfiles, null, 2)} as const;
 
 /** Device types admitted to the implemented camera handler. */
 export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set(${JSON.stringify(typesForHandler("camera"))});
@@ -433,6 +477,7 @@ async function check() {
     ...devices.flatMap(({ file, source, record }) => validateDevice(file, source, record, ids)),
     ...validateIdentityKeys(devices),
   ];
+  if (errors.length > 0) throw new Error(errors.join("\n"));
   if (await generatedRuntimeMismatch(devices) !== null) {
     errors.push("generated runtime catalogue is stale; run npm run catalogue:generate");
   }

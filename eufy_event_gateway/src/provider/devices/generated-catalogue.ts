@@ -1323,6 +1323,27 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
   }
 ] as const;
 
+/** Implemented event exposure profiles accepted by the catalogue validator. */
+export type CameraEventProfileId = "motion-person-pet-vehicle-sound";
+
+/** Exact primary model and connection eligible for an existing event exposure profile. */
+export interface CameraEventProfileBinding {
+  readonly model: string;
+  readonly deviceType: number;
+  readonly connection: "direct";
+  readonly profile: CameraEventProfileId;
+}
+
+/** Bindings explicitly selected by admitted catalogue records. */
+export const GENERATED_CAMERA_EVENT_PROFILES: readonly CameraEventProfileBinding[] = [
+  {
+    "model": "T86P2",
+    "deviceType": 111,
+    "connection": "direct",
+    "profile": "motion-person-pet-vehicle-sound"
+  }
+] as const;
+
 /** Device types admitted to the implemented camera handler. */
 export const GENERATED_CAMERA_DEVICE_TYPES: ReadonlySet<number> = new Set([1,3,5,7,8,9,14,15,16,19,23,24,26,30,31,32,33,37,38,45,46,47,48,49,61,62,63,64,87,88,89,91,94,95,96,97,98,104,105,111,151,203,314,10005,10008,10009,10010,10011,10031,10035,10037,10039]);
 

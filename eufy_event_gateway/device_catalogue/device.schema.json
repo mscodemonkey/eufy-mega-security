@@ -166,6 +166,15 @@
             "sensor",
             "homebase"
           ]
+        },
+        "event_profile": {
+          "type": "object",
+          "required": ["id", "connection"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "const": "motion-person-pet-vehicle-sound" },
+            "connection": { "const": "direct" }
+          }
         }
       },
       "allOf": [
