@@ -102,10 +102,83 @@ export function nvrTrialSensor(model: string, deviceType: number | null): 0 | 1 
 }
 
 /**
- * One lens, or "both" for the two lenses of one channel stacked by the recorder
- * into a single picture: lens 0 above lens 1, each 1280x720.
+ * Layouts the recorder stitches several channels into, numbered as eufy's media
+ * kit numbers them, with the most cells each holds. The cells fill in list
+ * order and any left over stay blank. 2 is a 2x2 grid and 3 a 3x3 grid; 5
+ * stacks two pictures and 6 three, top to bottom. 4 (a 4x4 grid) is left out:
+ * a ten-channel NVR repeats its first cell in the six it cannot fill, and each
+ * cell is smaller than a 3x3's for the same one call (measured on a T8N00).
  */
-export type NvrSource = 0 | 1 | "both";
+export const NVR_STITCH_CELLS = { 2: 4, 3: 9, 5: 2, 6: 3 } as const;
+
+/** A stitched layout, by eufy's number. */
+export type NvrStitchMode = keyof typeof NVR_STITCH_CELLS;
+
+/** One cell of a stitched picture: a channel and the lens shown in it. */
+export interface NvrStitchCell {
+  readonly channel: number;
+  readonly sensor: 0 | 1;
+}
+
+/**
+ * Several channels the recorder stitches into one picture of the given size,
+ * cells in order. The NVR encodes it as a single stream on one call.
+ */
+export interface NvrStitch {
+  readonly mode: NvrStitchMode;
+  readonly cells: readonly NvrStitchCell[];
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Largest picture a stitched start may ask for: H.265 level 5.1's 8,912,896
+ * luma samples, the level browsers, phones and TV boxes generally decode.
+ * 3840x2160 fits, and 5760x3240, which the NVR also accepts, needs level 6.
+ */
+const NVR_STITCH_MAX_SAMPLES = 8_912_896;
+
+/** True for a layout the recorder can stitch, within its cells and the decodable size. */
+export function nvrStitchValid(stitch: unknown): stitch is NvrStitch {
+  if (!nvrRecord(stitch) || !Object.hasOwn(NVR_STITCH_CELLS, String(stitch.mode)) || !Array.isArray(stitch.cells)) return false;
+  const { width, height, cells } = stitch as { width: unknown; height: unknown; cells: unknown[] };
+  const most = NVR_STITCH_CELLS[stitch.mode as NvrStitchMode];
+  if (!cells.length || cells.length > most || !Number.isInteger(width) || !Number.isInteger(height)) return false;
+
+  // Sizes in eighths keep each cell's edges on whole pixels for every layout here.
+  const w = width as number, h = height as number;
+  if (w % 8 || h % 8 || w < 16 || h < 16 || w > 8192 || h > 8192 || w * h > NVR_STITCH_MAX_SAMPLES) return false;
+  const seen = new Set<string>();
+  return cells.every(cell => nvrRecord(cell) && Number.isInteger(cell.channel) && (cell.channel as number) >= 0
+    && (cell.channel as number) <= 254 && (cell.sensor === 0 || cell.sensor === 1)
+    && !seen.has(`${cell.channel}:${cell.sensor}`) && !!seen.add(`${cell.channel}:${cell.sensor}`));
+}
+
+/**
+ * The lenses a camera can show in a stitched cell, first lens first, or none
+ * for a model the recorder's stitcher cannot carry. The T8214 (E340) doorbell
+ * streams on its own as both its lenses stacked, but leaves its cell on
+ * "Please wait…" in every grid and stack, with either sensor (measured on a
+ * T8N00). The S4 can show its Fixed (0) or Movable (1) lens; every other
+ * camera shows its only lens.
+ */
+export function nvrStitchLenses(model: string, deviceType: number | null): readonly (0 | 1)[] {
+  if (model === "T8214" && deviceType === 94 || nvrTrialSensor(model, deviceType) === null) return [];
+  return model === "T8E00" && deviceType === 301 ? [0, 1] : [0];
+}
+
+/**
+ * One lens, "both" for the two lenses of one channel stacked by the recorder
+ * into a single picture (lens 0 above lens 1, each 1280x720), or a stitch of
+ * several channels.
+ */
+export type NvrSource = 0 | 1 | "both" | NvrStitch;
+
+/** The start fields for a stitched picture: its layout, the cells in order, and its size. */
+function nvrStitchStart(stitch: NvrStitch): Record<string, unknown> {
+  return { stitch_mode: stitch.mode, chn_list: stitch.cells.map((cell, index) => ({ index, chn: cell.channel, sensor: cell.sensor })),
+    stitch_resolution: { width: stitch.width, height: stitch.height } };
+}
 
 /**
  * Encode only fixed trial operations, keeping the chosen lens separate from its channel.
@@ -118,10 +191,10 @@ export function nvrCommand(account: string, command: 9100 | 1003 | 1004 | 1103, 
     || !Number.isInteger(audioChannel) || audioChannel < -1 || audioChannel > 254) {
     throw new NvrTrialError("framing");
   }
-  if (sensor !== 0 && sensor !== 1 && sensor !== "both") throw new NvrTrialError("framing");
+  if (sensor !== 0 && sensor !== 1 && sensor !== "both" && !nvrStitchValid(sensor)) throw new NvrTrialError("framing");
   const start = sensor === "both"
-    ? { stitch_mode: 5, chn_list: [{ index: 0, chn: channel, sensor: 0 }, { index: 1, chn: channel, sensor: 1 }], stitch_resolution: { width: 1280, height: 1440 } }
-    : { stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] };
+    ? nvrStitchStart({ mode: 5, cells: [{ channel, sensor: 0 }, { channel, sensor: 1 }], width: 1280, height: 1440 })
+    : typeof sensor === "object" ? nvrStitchStart(sensor) : { stitch_mode: 1, chn_list: [{ index: 0, chn: channel, sensor }] };
   const payload = command === 1003 ? { ClientOS: "WEB", entrytype: 1, camera_type: 0, streamtype: 2,
     key: "", msg_id: "", audio_chn: audioChannel, ...start }
     : command === 1103 ? { channel_info: { array_size: 2, channel_array: [255, channel] } } : {};

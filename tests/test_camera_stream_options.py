@@ -23,9 +23,11 @@ class CameraStreamOptionsTest(unittest.TestCase):
     def test_live_stream_keeps_transport_timestamps_and_supplies_missing_raw_timestamps(self) -> None:
         """Preserve audio/video synchronization while retaining raw-video compatibility."""
         tree = ast.parse(CAMERA_SOURCE.read_text())
-        assignments = [
+        camera, multiview = (next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == name)
+                             for name in ("EufyGatewayCamera", "EufyGatewayMultiViewCamera"))
+        wallclock = lambda owner: [
             node
-            for node in ast.walk(tree)
+            for node in ast.walk(owner)
             if isinstance(node, ast.Assign)
             and any(
                 isinstance(target, ast.Subscript)
@@ -38,8 +40,12 @@ class CameraStreamOptionsTest(unittest.TestCase):
                 for target in node.targets
             )
         ]
+        assignments = wallclock(camera)
 
         self.assertEqual(len(assignments), 2)
+
+        # The multi-view is always raw native video.
+        self.assertEqual([ast.unparse(node.value) for node in wallclock(multiview)], ["True"])
 
         # Raw video until a source is chosen; then the clock follows the route the gateway returned.
         self.assertEqual(ast.unparse(assignments[0].value), "True")

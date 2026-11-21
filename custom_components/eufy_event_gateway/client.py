@@ -470,6 +470,25 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid shared lens path")
         return self._url(path)
 
+    async def multiview_stream_url(self, station: str) -> str:
+        """Ask for one NVR's native multi-view, never falling back to another route.
+
+        The multi-view is native video only. Every response must name the
+        requested NVR's multi-view route and the native profile.
+        """
+        payload = await self._json(f"/api/stations/{quote(station, safe='')}/stream-token", method="POST",
+                                   payload={"profile": "native", "audio": "off"})
+        if not isinstance(payload, dict) or payload.get("profile") != "native" or payload.get("view") != "multiview":
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        path = payload.get("path")
+        if not isinstance(path, str) or "\\" in path:
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        parts = urlsplit(path)
+        if (parts.scheme or parts.netloc or parts.fragment
+                or parts.path != f"/api/stations/{quote(station, safe='')}/live-multiview-native.annexb"):
+            raise GatewayClientError("Gateway returned an invalid multi-view path")
+        return self._url(path)
+
     async def event_image(self, serial: str) -> bytes | None:
         """Read the latest event picture, returning None before one arrives."""
         try:
@@ -737,6 +756,15 @@ class GatewayClient:
         if type(view) is not int or view not in (0, 1, 2):
             raise GatewayClientError("Unavailable NVR view", code="unavailable")
         camera = await self._json(f"/api/cameras/{serial}/nvr-view", method="POST", payload={"view": view}, timeout=120, nvr=True)
+        if camera.get("serial") != serial:
+            raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
+        return camera
+
+    async def set_nvr_multiview_lens(self, serial: str, lens: int) -> dict[str, Any]:
+        """Choose the lens a camera shows in its NVR's multi-view cell, owned by the gateway."""
+        if type(lens) is not int or lens not in (0, 1):
+            raise GatewayClientError("Unavailable multi-view lens", code="unavailable")
+        camera = await self._json(f"/api/cameras/{serial}/nvr-multiview-lens", method="POST", payload={"lens": lens}, nvr=True)
         if camera.get("serial") != serial:
             raise GatewayClientError("Request outcome is unknown. Check Eufy before trying again.", code="outcome_unknown")
         return camera

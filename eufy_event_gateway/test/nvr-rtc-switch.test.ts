@@ -10,7 +10,7 @@ import test from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
 import { NvrRtcSession, type NvrRtcOptions, type NvrSwitchTarget } from '../src/stream/nvr-rtc-session.js';
-import { nvrApplication, nvrPackets } from '../src/stream/nvr-protocol.js';
+import { NvrTrialError, nvrApplication, nvrPackets } from '../src/stream/nvr-protocol.js';
 import { NvrPtcsReassembler } from '../src/stream/nvr-ptcs-reassembly.js';
 
 function application(command: number, segment: number, body: Buffer): Buffer {
@@ -31,7 +31,7 @@ async function fixture(mode: Mode, observer = false) {
   await peer.setLocalDescription(await peer.createOffer());
   const generated = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '1', '-frames:v', '1', '-f', 'h264', 'pipe:1']);
   assert.equal(generated.status, 0, generated.stderr.toString());
-  const requests: { command: number; channel?: number; sensor?: number; at: number }[] = [], receiver = new NvrPtcsReassembler();
+  const requests: { command: number; channel?: number; sensor?: number; at: number; start?: Record<string, unknown> }[] = [], receiver = new NvrPtcsReassembler();
   let reply = 0, transport = 0, videoSequence = 0, starts = 0, sender: NodeJS.Timeout | undefined;
   peer.onDataChannel.subscribe(channel => {
     if (channel.label !== 'WebrtcDataChannel') return;
@@ -41,7 +41,7 @@ async function fixture(mode: Mode, observer = false) {
       if (assembled.status !== 'complete') return;
       const request = nvrApplication(assembled.frame), body = JSON.parse(request.payload.toString());
       const selected = body.payload.chn_list?.[0];
-      requests.push({ command: body.cmd, channel: selected?.chn, sensor: selected?.sensor, at: performance.now() });
+      requests.push({ command: body.cmd, channel: selected?.chn, sensor: selected?.sensor, at: performance.now(), ...body.cmd === 1003 ? { start: body.payload } : {} });
       const rows = [{ sn: 'synthetic-camera', ch: 3, dev_type: 301 }, { sn: mode === 'wrong-second-camera' ? 'synthetic-other' : 'synthetic-next', ch: 8, dev_type: 303 }];
       const response = body.cmd === 9100
         ? application(1351, request.segment, Buffer.from(JSON.stringify({ cmd: 9100, payload: { dev_list: rows } })))
@@ -261,4 +261,60 @@ test('only a call delivering video can park, and a parked call ends with its poo
     await failed;
     assert.equal(value.session.idle, false);
   } finally { await value.close(); }
+});
+
+const stitchedTarget = (ready: NvrSwitchTarget['ready'], signal: AbortSignal, gone = false): NvrSwitchTarget => ({
+  camera: 'synthetic-camera', channel: 3, cameraType: 301, signal, current: () => true, ready,
+  sensor: { mode: 3, width: 3840, height: 2160, cells: [{ channel: 3, sensor: 0 }, { channel: gone ? 5 : 8, sensor: 0 }] },
+  cells: [{ camera: 'synthetic-camera', channel: 3, cameraType: 301 }, gone ? { camera: 'synthetic-gone', channel: 5, cameraType: 104 } : { camera: 'synthetic-next', channel: 8, cameraType: 303 }],
+});
+
+test('a parked call switches to a stitched start, and from it back to one camera with no cells left over', { timeout: 30000 }, async () => {
+  const value = await fixture('video');
+  try {
+    await value.started();
+    const pool = new AbortController();
+    await value.session.park({ signal: pool.signal, current: () => !pool.signal.aborted });
+    value.stale(); value.first.abort();
+    const reported: PassThrough[] = [];
+    assert.ok(await value.session.switchCamera(stitchedTarget(output => { reported.push(output); output.resume(); }, value.second.signal)) >= 0);
+    const stitched = value.requests.at(-1)!.start!;
+    assert.equal(stitched.stitch_mode, 3);
+    assert.deepEqual(stitched.chn_list, [{ index: 0, chn: 3, sensor: 0 }, { index: 1, chn: 8, sensor: 0 }]);
+    assert.deepEqual(stitched.stitch_resolution, { width: 3840, height: 2160 });
+    assert.equal(stitched.audio_chn, -1, 'a stitched call carries video only');
+    assert.ok(value.requests.every(row => [9100, 1003, 1004].includes(row.command)),
+      'only the camera list, starts and stops: no settings query or write reaches the NVR');
+    assert.deepEqual(reported, [value.session.output]);
+    while (!value.session.switchable) await new Promise(resolve => setTimeout(resolve, 20));
+    await value.session.switchCamera(value.target(output => { output.resume(); }));
+    const single = value.requests.at(-1)!.start!;
+    assert.deepEqual([single.stitch_mode, single.chn_list], [1, [{ index: 0, chn: 8, sensor: 0 }]]);
+    assert.equal((value.session as unknown as { options: { cells?: unknown } }).options.cells, undefined, 'the stitch\'s cells did not follow the call');
+  } finally { await value.close(); }
+});
+
+test('a stitched cell whose camera is not in the call\'s camera list refuses the switch before any start', { timeout: 30000 }, async () => {
+  const value = await fixture('video');
+  try {
+    await value.started();
+    const pool = new AbortController();
+    await value.session.park({ signal: pool.signal, current: () => !pool.signal.aborted });
+    await assert.rejects(value.session.switchCamera(stitchedTarget(() => {}, value.second.signal, true)),
+      (error: unknown) => error instanceof NvrTrialError && error.stage === 'identity_unmatched');
+    assert.deepEqual(value.requests.map(row => row.command), [9100, 1003, 1004], 'no start was sent');
+  } finally { await value.close(); }
+});
+
+test('a stitched call must name every cell\'s camera and ask for video only', () => {
+  const base = { station: 'synthetic-station', camera: 'synthetic-camera', channel: 3, cameraType: 301, administrator: 'synthetic-administrator',
+    context: { host: 'security-smart-ie.eufylife.com', region: 'IE' as const, authToken: 'synthetic-token', gtoken: 'synthetic-gtoken', sign: 'synthetic-sign' },
+    signal: new AbortController().signal, current: () => true, ready: () => {}, maximumLifetimeMilliseconds: null } satisfies Partial<NvrRtcOptions>;
+  const stitched = stitchedTarget(() => {}, base.signal), sensor = stitched.sensor!, cells = stitched.cells!;
+  const admission = (error: unknown): boolean => error instanceof NvrTrialError && error.stage === 'admission';
+  for (const wrong of [{ sensor }, { sensor, cells: cells.slice(0, 1) }, { sensor: 0 as const, cells }, { sensor, cells, audio: true },
+    { sensor, cells, liveControls: true }, { sensor, cells: [...cells].reverse() }, { sensor, cells, camera: 'synthetic-next' }]) {
+    assert.throws(() => new NvrRtcSession({ ...base, ...wrong } as NvrRtcOptions), admission, JSON.stringify(Object.keys(wrong)));
+  }
+  assert.doesNotThrow(() => new NvrRtcSession({ ...base, sensor, cells }));
 });

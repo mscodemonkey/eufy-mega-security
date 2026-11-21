@@ -33,6 +33,13 @@ import type { NvrGuardEffective } from "../provider/nvr-guard-schedule.js";
 import { NvrTrialError, nvrAudio, nvrAudioChannel, nvrCameraPowerCommand, nvrGuardModeCommand, nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrJson,
   nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrRecord, nvrVideo, nvrStateSummary, type NvrSource, type NvrStateSummary, type NvrTrialStage, type NvrTrialReason } from "./nvr-protocol.js";
 
+/** One camera in a stitched call's cell, checked against the call's camera list like a single camera. */
+export interface NvrCellCamera {
+  readonly camera: string;
+  readonly channel: number;
+  readonly cameraType: number;
+}
+
 import { NvrLiveControlError } from "../provider/nvr-live-controls.js";
 import { nvrEffectiveModeBroadcast, type NvrEffectiveModeObservation } from "./nvr-effective-mode.js";
 import { nvrLiveCommand, nvrLiveJson, nvrLiveReceipt, nvrLivePanReply, nvrLiveSettings, type NvrLiveSettings, type NvrLiveWrite } from "./nvr-live-control-protocol.js";
@@ -134,8 +141,18 @@ export interface NvrRtcOptions {
    */
   readonly s1FirstPictureGrace?: boolean;
 
-  /** Provider-selected lens, or both lenses stacked. Omission preserves the original T8E00 trial. */
+  /**
+   * Provider-selected lens, both lenses stacked, or a stitch of several
+   * channels. Omission preserves the original T8E00 trial.
+   */
   readonly sensor?: NvrSource;
+
+  /**
+   * The camera in each cell of a stitched `sensor`, in cell order, required
+   * with one and only then. `camera`, `channel` and `cameraType` name the first.
+   * A stitched call carries video only: no audio, controls or trials.
+   */
+  readonly cells?: readonly NvrCellCamera[];
   readonly administrator: string;
 
   /** Freshly bound administrator display name required by the closed guard command. */
@@ -184,7 +201,7 @@ export interface NvrRtcOptions {
 }
 
 /** The camera a live call moves to, and the provider ownership that moves with it. */
-export type NvrSwitchTarget = Pick<NvrRtcOptions, "camera" | "channel" | "cameraType" | "sensor" | "liveControls" | "panReceiptOnly"
+export type NvrSwitchTarget = Pick<NvrRtcOptions, "camera" | "channel" | "cameraType" | "sensor" | "cells" | "liveControls" | "panReceiptOnly"
   | "signal" | "current" | "ready" | "audio" | "onEffectiveMode" | "onTimings">;
 
 interface PendingRequest {
@@ -309,6 +326,25 @@ export function widenNvrReceiveBuffers(peer: RTCPeerConnection): void {
  * attempts stop once if needed, and releases resources before its owner releases
  * the lease. All externally visible errors have fixed diagnostic stages.
  */
+/**
+ * True when a stitched source names a camera for each of its cells, in order,
+ * starting with the session's own camera, and asks for nothing but video; and
+ * when any other source names no cells.
+ */
+function nvrCellsBound(options: NvrRtcOptions): boolean {
+  const { sensor, cells } = options;
+  if (typeof sensor !== "object") return cells === undefined;
+  return !!cells && cells.length === sensor.cells.length && cells.every((cell, index) => cell.channel === sensor.cells[index]!.channel)
+    && cells[0]!.camera === options.camera && cells[0]!.channel === options.channel && cells[0]!.cameraType === options.cameraType
+    && !options.audio && !options.liveControls && !options.modeObserver && !options.powerTrial && !options.guardTrial && !options.e10RtpTrial;
+}
+
+/** Check the call's camera, and each stitched cell's camera, against the NVR's camera list. */
+function nvrMatchCameras(inventory: Record<string, unknown>, options: Pick<NvrRtcOptions, "camera" | "channel" | "cameraType" | "cells">): void {
+  nvrMatchCamera(inventory, options.camera, options.channel, options.cameraType ?? 301);
+  for (const cell of options.cells ?? []) nvrMatchCamera(inventory, cell.camera, cell.channel, cell.cameraType);
+}
+
 export class NvrRtcSession {
   #startInvoked = false;
   #timingsEmitted = false;
@@ -438,6 +474,7 @@ export class NvrRtcSession {
     if (options.e10RtpTrial && (options.cameraType !== 314 || options.station !== options.camera || options.channel !== 0
       || (options.sensor ?? 0) !== 0 || options.audio || options.modeObserver || options.powerTrial || options.guardTrial
       || options.liveControls)) throw new NvrTrialError("admission");
+    if (!nvrCellsBound(options)) throw new NvrTrialError("admission");
     this.#externalAbort = () => this.#fail("cancelled");
     options.signal.addEventListener("abort", this.#externalAbort, { once: true });
   }
@@ -591,12 +628,14 @@ export class NvrRtcSession {
     const observer = this.canTakeOver(this.options.station);
     const parked = !observer && this.idle;
     if (!observer && !parked && !this.switchable) throw new NvrTrialError("admission");
+    const { cells: _previousCells, ...binding } = this.options;
+    if (!nvrCellsBound({ ...binding, ...target, modeObserver: false })) throw new NvrTrialError("admission");
     this.#switching = true;
     this.#parked = false;
     this.options.signal.removeEventListener("abort", this.#externalAbort);
 
-    // The observer's own mode callback must not survive into the view.
-    this.options = { ...this.options, ...target, ...observer ? { modeObserver: false, onEffectiveMode: target.onEffectiveMode } : {} };
+    // The observer's own mode callback must not survive into the view, nor a stitch's cells into a single camera.
+    this.options = { ...binding, ...target, ...observer ? { modeObserver: false, onEffectiveMode: target.onEffectiveMode } : {} };
     this.options.signal.addEventListener("abort", this.#externalAbort, { once: true });
     const previous = this.#output, previousAudio = this.#audioOutput;
     this.#output = this.#createOutput();
@@ -612,7 +651,7 @@ export class NvrRtcSession {
       await this.#request(1004, 1500);
     }
     this.#stage = "inventory";
-    nvrMatchCamera(this.#inventory!, target.camera, target.channel, target.cameraType ?? 301);
+    nvrMatchCameras(this.#inventory!, this.options);
     this.#guard();
     this.#resetVideo();
     this.#switching = false;
@@ -977,7 +1016,7 @@ export class NvrRtcSession {
       this.stats.inventoryRepeated++;
       discovery = await this.#request(9100, 5000);
     }
-    nvrMatchCamera(discovery, this.options.camera, this.options.channel, this.options.cameraType ?? 301);
+    nvrMatchCameras(discovery, this.options);
     this.#inventory = discovery;
     this.#guard();
   }

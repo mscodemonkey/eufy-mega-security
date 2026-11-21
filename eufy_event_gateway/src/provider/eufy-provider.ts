@@ -44,7 +44,7 @@ import { E21ControlError, e21Readings, e21PreferenceContracts, e21PreferenceName
 import { NvrRtcSession, type NvrSwitchTarget } from "../stream/nvr-rtc-session.js";
 import type { NvrLensCall } from "../stream/native-lens-views.js";
 import type { SharedLens } from "../stream/shared-lens-views.js";
-import { NvrTrialError, nvrTrialSensor, type NvrSource, type NvrStateSummary } from "../stream/nvr-protocol.js";
+import { NVR_STITCH_CELLS, NvrTrialError, nvrStitchLenses, nvrTrialSensor, type NvrSource, type NvrStateSummary, type NvrStitch } from "../stream/nvr-protocol.js";
 import { modelControlTrialActions, parseModelControlTrial, runModelControlTrial, type ModelControlRoute, type ModelControlTrial, type ModelControlTrialAdmission, type ModelControlTrialFailureStage, type ModelControlTrialResult, type AlarmStateTrialResult } from "./model-control-trials.js";
 import { join } from "node:path";
 import { setTimeout as cancellableDelay } from "node:timers/promises";
@@ -114,6 +114,14 @@ const NVR_SWITCH_WAIT_MILLISECONDS = 6_000;
  * over or closes it, and it stays off until every call has ended.
  */
 const NVR_CALL_BUDGET = 3;
+
+/**
+ * The multi-view camera's picture: a 3x3 grid (`Std_3X3`) at 3840x2160, so
+ * each cell is 1280x720. That is the largest 3x3 within H.265 level 5.1. On a
+ * T8N00 it ran at 20 fps in real time, about 0.76 Mbit/s, encoder load 33 of
+ * 240 (measured 16 Nov 2026).
+ */
+const NVR_MULTIVIEW_PICTURE = { mode: 3, width: 3840, height: 2160 } as const satisfies Omit<NvrStitch, "cells">;
 const STATION_REFRESH_DISCONNECT_FAILURES = 4;
 
 /** Return whether a cached PPCS lookup key should be replaced before another session starts. */
@@ -830,14 +838,27 @@ interface NvrTrialEntry {
 }
 
 /**
- * One pane's own native call for one S4 lens. These sit beside the ordinary
- * calls in `#nvrTrials`, keyed by camera and lens, never take over or yield an
+ * A native call one camera entity owns outright: an S4 lens pane's, keyed by
+ * camera and lens, or a T8N00 multi-view camera's, keyed by NVR. These sit
+ * beside the ordinary calls in `#nvrTrials`, never take over or yield an
  * ordinary call, and share the station reservation with it.
  */
-interface NvrLensCallEntry {
-  readonly controller: AbortController; readonly device: MegaInventoryDevice; readonly station: MegaInventoryDevice;
-  readonly lens: SharedLens; readonly generation: number; session: NvrRtcSession | null;
+interface NvrOwnCallEntry {
+  readonly key: string; readonly controller: AbortController; readonly station: MegaInventoryDevice;
+
+  /** The pane's camera, or the NVR itself for the multi-view. */
+  readonly device: MegaInventoryDevice;
+  readonly view: SharedLens | "multiview"; readonly generation: number; session: NvrRtcSession | null;
   idleCall: NvrIdleCall | null; releasing: boolean;
+
+  /** The camera, lens or stitch this call shows, fixed at admission. */
+  readonly source: Pick<NvrSwitchTarget, "camera" | "channel" | "cameraType" | "sensor" | "cells">;
+
+  /** Log event prefix and the detail each line carries. */
+  readonly event: "nvr_lens_call" | "nvr_multiview_call"; readonly detail: string;
+
+  /** Whether what this call shows is still admitted on current inventory. */
+  readonly admitted: () => boolean;
   releasePeer: () => void; release: () => Promise<void>;
 }
 
@@ -905,10 +926,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #nvrLiveIntervals = new Map<string, number>();
   readonly #nvrReadIntervals = new Map<string, number>();
   readonly #nvrViews = new Map<string, { binding: string; value: number }>();
+
+  /** Each camera's chosen lens for its NVR's multi-view cell, where it has a choice, until restart or rebinding. */
+  readonly #nvrMultiViewLenses = new Map<string, { binding: string; value: 0 | 1 }>();
+
+  /**
+   * NVRs that refused a stitched start. Results on one S4 don't qualify other
+   * firmware, so such an NVR's multi-view stays unavailable until the gateway
+   * restarts or the NVR's firmware or binding changes.
+   */
+  readonly #nvrMultiViewRefusals = new Map<string, string>();
   readonly #nvrSettings = new Map<string, { binding: string; values: NvrLiveSettings; nightAt: number; qualityAt: number; trackingAt: number; timer: NodeJS.Timeout | null }>();
   #nvrMediaChecks: { viewer: (serial: string) => boolean; active: (serial: string) => boolean; recording: (serial: string) => boolean; yieldable: (serial: string) => boolean; settling: (serial: string) => boolean; retiring?: (serial: string) => boolean; retireYieldable?: (serial: string, onlyIfUnused?: boolean) => Promise<boolean> } | null = null;
   readonly #nvrTrials = new Map<string, NvrTrialEntry>();
-  readonly #nvrLensCalls = new Map<string, NvrLensCallEntry>();
+  readonly #nvrOwnCalls = new Map<string, NvrOwnCallEntry>();
   readonly #nvrIdleCalls = new Map<string, Set<NvrIdleCall>>();
 
   /**
@@ -918,7 +949,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   readonly #nvrHangUps = new Map<string, Set<Promise<void>>>();
 
-  /** The one station reservation every NVR call on that station shares, ordinary or lens. */
+  /** The one station reservation every NVR call on that station shares: ordinary, pane or multi-view. */
   readonly #nvrCallPeers = new Map<string, { readonly owner: symbol | undefined; readonly holders: Set<symbol>; readonly release: () => void }>();
 
   /** Private card references expire in memory and are never published as filesystem paths. */
@@ -1790,7 +1821,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
-    this.#nvrViews.clear();
+    this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear(); this.#nvrMultiViewRefusals.clear();
     this.#retireInventoryRefresh();
     this.#events = events;
     this.#rebuildLockAdapter(events, generation);
@@ -1858,7 +1889,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const maps: readonly { readonly size: number }[] = [this.#ppcsStreams, this.#streamStarts, this.#stationOperations,
       this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations, this.#audioRecordingOperations,
       this.#motionOperations, this.#guardModeOperations, this.#nightVisionOperations, this.#lightOperations,
-      this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#nvrLensCalls, this.#nvrIdleCalls, this.#doorbellTrials,
+      this.#cameraSirenOperations, this.#cameraSirenAborters, this.#panControlOperations, this.#nvrTrials, this.#nvrOwnCalls, this.#nvrIdleCalls, this.#doorbellTrials,
       this.#localMotionAborters, this.#lockStatusAborters, this.#manualControlAborters, this.#recordingSessions,
       this.#trialSirenStops, this.#generalRtcLockOperations, this.#generalRtcTrials, this.#trialPeers, this.#trialSessions,
       this.#recordingReservations, this.#nvrLiveJobs, this.#nvrPowerEntries, this.#nvrGuardEntries,
@@ -2051,7 +2082,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #reserveDoorbellRtc(serial: string, signal: AbortSignal, diagnostic: boolean): () => Promise<void> {
     const device = this.#devices.get(serial);
     if (!this.#doorbellRtcBinding(device) || !device || signal.aborted || this.#recordingClosing
-      || !this.#client.isAuthenticated || this.#localMotionAborters.size || this.#doorbellTrials.size || this.#nvrTrials.size || this.#nvrLensCalls.size || this.#nvrIdleCalls.size
+      || !this.#client.isAuthenticated || this.#localMotionAborters.size || this.#doorbellTrials.size || this.#nvrTrials.size || this.#nvrOwnCalls.size || this.#nvrIdleCalls.size
       || this.#trialPeers.has(serial) || this.#recordingPeerReserved(serial) || this.#stationHasActiveMedia(serial)) {
       throw new DoorbellRtcError("admission");
     }
@@ -2183,7 +2214,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!this.#nvrBinding(device, station) && !this.#nvrLiveAdmitted(device, station)) return null;
     const profile = this.#normalNvrLiveBinding(device, station) && this.#nvrLiveAdmitted(device, station) ? this.#nvrProfile(device) : null;
     const values = this.#nvrCachedSettings(device);
-    const view = this.#nvrView(device);
+    const view = this.#nvrView(device), lensOptions = this.#nvrMultiViewLensOptions(device);
     return {
       serial: device.serial, name: device.name, model: device.model, deviceType: device.deviceType, stationSerial: device.parentSerial,
       catalogueStatus: profile ? "ready_to_test" : "recognised", firmware: device.firmware, hardwareVersion: device.hardwareVersion ?? null, firmwareSubVersion: device.firmwareSubVersion ?? null,
@@ -2193,6 +2224,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       directionalPanControlSupported: false,
       nvrOpticalZoomControlSupported: !!profile?.opticalZoom && (profile.movementView === null || view === profile.movementView || view === profile.stackedView),
       nvrViewOptions: profile?.views ?? [], nvrSelectedView: profile?.views.length ? view : null, nvrLiveControlsSupported: !!profile,
+      nvrMultiViewLensOptions: lensOptions, nvrMultiViewLens: lensOptions.length ? this.#nvrMultiViewLens(device) : null,
       autoNightVisionEnabled: null, aiTrackingEnabled: values.tracking === null ? null : values.tracking === 1, battery: batteryState(device),
       streamSupported: this.#normalNvrLiveBinding(device, station), startupSnapshotSupported: false,
       hlsIdleHandoverSupported: this.#normalNvrLiveBinding(device, station),
@@ -2298,19 +2330,19 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #reserveNvrTrial(serial: string, signal: AbortSignal, stateOnly: boolean, diagnostic: boolean, handover: NvrTrialEntry | null = null): () => Promise<void> {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
 
-    // Pane lens calls and parked calls share the station reservation, so only what else holds it refuses a view.
+    // Pane and multi-view calls and parked calls share the station reservation, so only what else holds it refuses a view.
     // An exclusive diagnostic lease and a call for state alone wait for them to close: a call
     // that ends with a hang-up would end theirs too.
-    const besideLensCalls = !!station && (this.#nvrLensCallCount(station.serial) > 0 || this.#nvrIdleCallCount(station.serial) > 0);
+    const besideOwnCalls = !!station && (this.#nvrOwnCallCount(station.serial) > 0 || this.#nvrIdleCallCount(station.serial) > 0);
     const refusal = !this.config.experimentalNvrLive ? "disabled" : this.#recordingClosing ? "closing"
       : signal.aborted ? "cancelled" : !this.#client.isAuthenticated ? "unauthenticated"
         : this.#localMotionAborters.size ? "motion_reserved" : !handover && this.#nvrTrials.size ? "call_reserved"
           : !device ? "missing_device" : !station ? "missing_station" : this.#nvrControlReserved(station.serial) ? "controls_reserved"
             : !(diagnostic ? this.#nvrBinding(device, station) : this.#normalNvrLiveBinding(device, station)) ? "binding"
               : !handover && this.#nvrHangUps.has(station.serial) ? "hang_up_pending"
-              : !handover && besideLensCalls && (diagnostic || stateOnly) ? "call_reserved"
-                : !handover && (besideLensCalls ? this.#stationReservedBesideNvrCalls(station.serial) : this.#recordingPeerReserved(serial)) ? "recording_reserved"
-                  : !handover && !besideLensCalls && this.#stationHasActiveMedia(station.serial) ? "media_active"
+              : !handover && besideOwnCalls && (diagnostic || stateOnly) ? "call_reserved"
+                : !handover && (besideOwnCalls ? this.#stationReservedBesideNvrCalls(station.serial) : this.#recordingPeerReserved(serial)) ? "recording_reserved"
+                  : !handover && !besideOwnCalls && this.#stationHasActiveMedia(station.serial) ? "media_active"
                     : !handover && !this.#nvrIdleCallCount(station.serial) && this.#nvrCallCount(station.serial) >= NVR_CALL_BUDGET ? "call_budget" : null;
     if (refusal || !device || !station) {
       const active = this.#nvrTrials.values().next().value as NvrTrialEntry | undefined;
@@ -2392,17 +2424,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#nvrActiveCallCount(station) + this.#nvrIdleCallCount(station);
   }
 
-  /** Ordinary and pane calls in use on one NVR, those not yet released. */
+  /** Ordinary, pane and multi-view calls in use on one NVR, those not yet released. */
   #nvrActiveCallCount(station: string): number {
     return [...this.#nvrTrials.values()].filter(entry => entry.station.serial === station && !entry.retiring).length
-      + [...this.#nvrLensCalls.values()].filter(entry => entry.station.serial === station && !entry.releasing).length;
+      + [...this.#nvrOwnCalls.values()].filter(entry => entry.station.serial === station && !entry.releasing).length;
   }
 
   #nvrIdleCallCount(station: string): number {
     return this.#nvrIdleCalls.get(station)?.size ?? 0;
   }
 
-  /** Reserve a parked call for a new pane or view; its share of the station passes to that entry's own. */
+  /** Reserve a parked call for a new pane, multi-view or view; its share of the station passes to that entry's own. */
   #takeNvrIdleCall(station: string): NvrIdleCall | null {
     const calls = this.#nvrIdleCalls.get(station);
     const idle = calls?.values().next().value as NvrIdleCall | undefined;
@@ -2525,8 +2557,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     while (this.#nvrHangUps.has(station) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  #nvrLensCallCount(station: string): number {
-    return [...this.#nvrLensCalls.values()].filter(entry => entry.station.serial === station).length;
+  #nvrOwnCallCount(station: string): number {
+    return [...this.#nvrOwnCalls.values()].filter(entry => entry.station.serial === station).length;
   }
 
   /**
@@ -2568,22 +2600,41 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
    */
   async openNvrLensCall(serial: string, lens: SharedLens): Promise<NvrLensCall> {
     this.#assertRtcPreparationIdle();
-    const station = this.#devices.get(serial)?.parentSerial;
-    if (station && this.#nvrHangUps.has(station)) {
-      await this.#nvrHangUpsFinished(station);
-      this.#assertRtcPreparationIdle();
-    }
-    const entry = this.#reserveNvrLensCall(serial, lens);
+    await this.#nvrOwnCallHangUpsFinished(this.#devices.get(serial)?.parentSerial);
+    return await this.#runNvrOwnCall(this.#reserveNvrLensCall(serial, lens));
+  }
+
+  /**
+   * Open one T8N00's multi-view on its own native call: a single stitched
+   * picture of the cameras it can carry, shared by the multi-view camera's
+   * viewers. It counts as one call in the budget, and is admitted, parked and
+   * hung up as a pane's call is. A refusal opens nothing.
+   */
+  async openNvrMultiViewCall(stationSerial: string): Promise<NvrLensCall> {
+    this.#assertRtcPreparationIdle();
+    await this.#nvrOwnCallHangUpsFinished(stationSerial);
+    return await this.#runNvrOwnCall(this.#reserveNvrMultiViewCall(stationSerial));
+  }
+
+  /** Wait out a hang-up running on this NVR before admission, as an ordinary view does. */
+  async #nvrOwnCallHangUpsFinished(station: string | undefined): Promise<void> {
+    if (!station || !this.#nvrHangUps.has(station)) return;
+    await this.#nvrHangUpsFinished(station);
+    this.#assertRtcPreparationIdle();
+  }
+
+  /** Start an admitted own call, and release it when its video ends or its start fails. */
+  async #runNvrOwnCall(entry: NvrOwnCallEntry): Promise<NvrLensCall> {
     try {
-      const session = await this.#startNvrLensSession(entry);
+      const session = await this.#startNvrOwnSession(entry);
       const output = session.output;
       let ended = false;
       const finish = (error?: unknown): void => {
         if (ended) return;
         ended = true;
         const failure = error === undefined ? null : error instanceof NvrTrialError ? error : new NvrTrialError("video");
-        if (failure && failure.stage !== "cancelled") logger.warn("nvr_lens_call_failed", `stage=${failure.stage} reason=${failure.reason} lens=${lens} ${nvrTrialCounters(session)}`);
-        else logger.info("nvr_lens_call_completed", `lens=${lens} ${nvrTrialCounters(session)}`);
+        if (failure && failure.stage !== "cancelled") logger.warn(`${entry.event}_failed`, `stage=${failure.stage} reason=${failure.reason} ${entry.detail} ${nvrTrialCounters(session)}`);
+        else logger.info(`${entry.event}_completed`, `${entry.detail} ${nvrTrialCounters(session)}`);
         void entry.release().catch(() => {});
       };
       output.on("error", finish);
@@ -2592,34 +2643,86 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       return { output, codec: () => session.codec, close: entry.release };
     } catch (error) {
       const failure = error instanceof NvrTrialError ? error : new NvrTrialError("sign");
-      logger.warn("nvr_lens_call_failed", `stage=${failure.stage} reason=${failure.reason} lens=${lens}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
+      logger.warn(`${entry.event}_failed`, `stage=${failure.stage} reason=${failure.reason} ${entry.detail}${entry.session ? " " + nvrTrialCounters(entry.session) : ""}`);
       await entry.release();
+
+      // The NVR answered the call but refused, or never acknowledged, the stitched start itself.
+      if (entry.view === "multiview" && failure.stage === "start") this.#refuseNvrMultiView(entry.station.serial, failure);
       throw failure;
     }
   }
 
+  /** Refusals every own call shares before its own binding is checked. */
+  #nvrOwnCallGatewayRefusal(): string | null {
+    return !this.config.experimentalNvrLive ? "disabled" : this.#recordingClosing ? "closing"
+      : !this.#client.isAuthenticated ? "unauthenticated" : this.#localMotionAborters.size ? "motion_reserved" : null;
+  }
+
+  /**
+   * Refusals every own call shares on its NVR, the call budget last. A parked
+   * call there is always reused before anything is refused for the budget.
+   */
+  #nvrOwnCallStationRefusal(station: string, calls: number): string | null {
+    return this.#nvrControlReserved(station) || this.#nvrLiveJobs.has(station) ? "controls_reserved"
+      : [...this.#nvrTrials.values()].some(entry => entry.station.serial === station && entry.diagnostic) ? "call_reserved"
+        : this.#nvrHangUps.has(station) ? "hang_up_pending"
+          : this.#stationReservedBesideNvrCalls(station) ? "media_active"
+            : !this.#nvrIdleCallCount(station) && calls >= NVR_CALL_BUDGET ? "call_budget" : null;
+  }
+
   /** Admit one lens call within the NVR's call budget, or refuse it with the reason logged. */
-  #reserveNvrLensCall(serial: string, lens: SharedLens): NvrLensCallEntry {
+  #reserveNvrLensCall(serial: string, lens: SharedLens): NvrOwnCallEntry {
     const device = this.#devices.get(serial), station = device ? this.#devices.get(device.parentSerial) : undefined;
     const key = JSON.stringify([serial, lens]);
     const calls = station ? this.#nvrCallCount(station.serial) : 0;
-    const refusal = !this.config.experimentalNvrLive ? "disabled" : this.#recordingClosing ? "closing"
-      : !this.#client.isAuthenticated ? "unauthenticated" : this.#localMotionAborters.size ? "motion_reserved"
-        : !device ? "missing_device" : !station ? "missing_station"
-          : !this.#normalNvrLiveBinding(device, station) || !this.nvrSharedLensViewsAdmitted(serial) ? "binding"
-            : this.#nvrLensCalls.has(key) ? "lens_reserved"
-              : this.#nvrControlReserved(station.serial) || this.#nvrLiveJobs.has(station.serial) ? "controls_reserved"
-                : [...this.#nvrTrials.values()].some(entry => entry.station.serial === station.serial && entry.diagnostic) ? "call_reserved"
-                  : this.#nvrHangUps.has(station.serial) ? "hang_up_pending"
-                  : this.#stationReservedBesideNvrCalls(station.serial) ? "media_active"
-                    : !this.#nvrIdleCallCount(station.serial) && calls >= NVR_CALL_BUDGET ? "call_budget" : null;
+    const refusal = this.#nvrOwnCallGatewayRefusal() ?? (!device ? "missing_device" : !station ? "missing_station"
+      : !this.#normalNvrLiveBinding(device, station) || !this.nvrSharedLensViewsAdmitted(serial) ? "binding"
+        : this.#nvrOwnCalls.has(key) ? "lens_reserved" : this.#nvrOwnCallStationRefusal(station.serial, calls));
     if (refusal || !device || !station) {
       try { logger.warn("nvr_lens_call_refused", `reason=${refusal ?? "binding"} lens=${lens} calls=${calls} budget=${NVR_CALL_BUDGET}`); } catch {}
       throw new NvrTrialError("admission");
     }
+    return this.#admitNvrOwnCall({ key, device, station, view: lens, event: "nvr_lens_call", detail: `lens=${lens}`,
+      source: { camera: serial, channel: device.channel!, cameraType: device.deviceType!, sensor: lens === "fixed" ? 0 : 1 },
+      admitted: () => {
+        const now = this.#devices.get(serial), parent = this.#devices.get(station.serial);
+        return !!now && !!parent && this.#normalNvrLiveBinding(now, parent) && this.nvrSharedLensViewsAdmitted(serial)
+          && !inventoryBindingChanged(device, now);
+      } });
+  }
+
+  /**
+   * Admit one T8N00's multi-view call within its call budget, or refuse it with
+   * the reason logged. The cells are fixed here: a camera added, removed or
+   * rebound afterwards ends the call, and the viewer's retry gets the new set.
+   */
+  #reserveNvrMultiViewCall(stationSerial: string): NvrOwnCallEntry {
+    const station = this.#devices.get(stationSerial), key = JSON.stringify([stationSerial, "multiview"]);
+    const cells = station ? this.#nvrMultiViewCells(station) : [];
+    const calls = station ? this.#nvrCallCount(stationSerial) : 0;
+    const refusal = this.#nvrOwnCallGatewayRefusal() ?? (!station ? "missing_station" : !this.nvrMultiViewAdmitted(stationSerial) ? "binding"
+      : this.#nvrOwnCalls.has(key) ? "view_reserved" : this.#nvrOwnCallStationRefusal(stationSerial, calls));
+    if (refusal || !station || !cells.length) {
+      try { logger.warn("nvr_multiview_call_refused", `reason=${refusal ?? "binding"} cells=${cells.length} calls=${calls} budget=${NVR_CALL_BUDGET}`); } catch {}
+      throw new NvrTrialError("admission");
+    }
+    const first = cells[0]!, layout = this.#nvrMultiViewLayout(cells);
+    return this.#admitNvrOwnCall({ key, device: station, station, view: "multiview", event: "nvr_multiview_call", detail: `cells=${cells.length}`,
+      source: { camera: first.serial, channel: first.channel!, cameraType: first.deviceType!,
+        sensor: { ...NVR_MULTIVIEW_PICTURE, cells: cells.map(cell => ({ channel: cell.channel!, sensor: this.#nvrMultiViewLens(cell) })) },
+        cells: cells.map(cell => ({ camera: cell.serial, channel: cell.channel!, cameraType: cell.deviceType! })) },
+      admitted: () => {
+        const now = this.#devices.get(stationSerial);
+        return !!now && this.nvrMultiViewAdmitted(stationSerial) && this.#nvrMultiViewLayout(this.#nvrMultiViewCells(now)) === layout;
+      } });
+  }
+
+  /** Record an admitted own call, holding its share of the station and any parked call it will take. */
+  #admitNvrOwnCall(admitted: Pick<NvrOwnCallEntry, "key" | "device" | "station" | "view" | "event" | "detail" | "source" | "admitted">): NvrOwnCallEntry {
+    const { key, station } = admitted;
     const controller = new AbortController();
     let closed: Promise<void> | null = null;
-    const entry: NvrLensCallEntry = { controller, device, station, lens, generation: this.#startupGeneration, session: null,
+    const entry: NvrOwnCallEntry = { ...admitted, controller, generation: this.#startupGeneration, session: null,
       idleCall: null, releasing: false, releasePeer: () => {}, release: () => {
         if (closed) return closed;
         entry.releasing = true;
@@ -2635,7 +2738,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
             await closing;
           } finally {
             controller.abort();
-            if (this.#nvrLensCalls.get(key) === entry) this.#nvrLensCalls.delete(key);
+            if (this.#nvrOwnCalls.get(key) === entry) this.#nvrOwnCalls.delete(key);
             entry.releasePeer();
           }
         })();
@@ -2643,29 +2746,26 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       } };
     entry.releasePeer = this.#reserveNvrCallPeer(station.serial);
     entry.idleCall = this.#takeNvrIdleCall(station.serial);
-    this.#nvrLensCalls.set(key, entry);
+    this.#nvrOwnCalls.set(key, entry);
     return entry;
   }
 
   /**
-   * Place the lens call, or take over the listening observer's call, which the
+   * Place the own call, or take over the listening observer's call, which the
    * T8N00 answers more reliably than a fresh call just after a hang-up. A failed
    * takeover hangs up and places one fresh call, as an ordinary view does.
    */
-  async #startNvrLensSession(entry: NvrLensCallEntry): Promise<NvrRtcSession> {
-    const serial = entry.device.serial, key = JSON.stringify([serial, entry.lens]);
+  async #startNvrOwnSession(entry: NvrOwnCallEntry): Promise<NvrRtcSession> {
     const current = (): boolean => {
-      const device = this.#devices.get(serial), station = this.#devices.get(entry.station.serial);
-      return this.#nvrLensCalls.get(key) === entry && entry.generation === this.#startupGeneration && !this.#recordingClosing
-        && !entry.controller.signal.aborted && !!device && !!station && this.#normalNvrLiveBinding(device, station)
-        && this.nvrSharedLensViewsAdmitted(serial) && !inventoryBindingChanged(entry.device, device)
+      const station = this.#devices.get(entry.station.serial);
+      return this.#nvrOwnCalls.get(entry.key) === entry && entry.generation === this.#startupGeneration && !this.#recordingClosing
+        && !entry.controller.signal.aborted && !!station && entry.admitted()
         && station.deviceType === entry.station.deviceType && station.model === entry.station.model && station.adminUserId === entry.station.adminUserId;
     };
-    const binding: NvrSwitchTarget = { camera: serial, channel: entry.device.channel!, cameraType: entry.device.deviceType!,
-      sensor: entry.lens === "fixed" ? 0 : 1, liveControls: false, panReceiptOnly: false, audio: false,
+    const binding: NvrSwitchTarget = { ...entry.source, liveControls: false, panReceiptOnly: false, audio: false,
       signal: entry.controller.signal, current, ready: () => {},
       onEffectiveMode: observation => { if (entry.session) this.#publishNvrMode(entry.station.serial, entry.session, observation, current); },
-      onTimings: timings => logger.info("nvr_lens_call_timings", `lens=${entry.lens} offer_ms=${timings.offer ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`) };
+      onTimings: timings => logger.info(`${entry.event}_timings`, `${entry.detail} offer_ms=${timings.offer ?? "none"} channel_open_ms=${timings.channelOpen ?? "none"} media_request_ms=${timings.mediaRequest ?? "none"} first_video_ms=${timings.firstVideo ?? "none"}`) };
     const idle = entry.idleCall;
     if (idle) {
       entry.idleCall = null;
@@ -2673,12 +2773,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (parked && idle.session.idle && current()) {
         entry.session = idle.session;
         try {
-          logger.info("nvr_lens_call_idle_used", `lens=${entry.lens} first_video_ms=${await idle.session.switchCamera(binding)}`);
+          logger.info(`${entry.event}_idle_used`, `${entry.detail} first_video_ms=${await idle.session.switchCamera(binding)}`);
           return idle.session;
         } catch (error) {
           const failure = error instanceof NvrTrialError ? error : new NvrTrialError("video");
           if (failure.stage === "cancelled" || entry.controller.signal.aborted) throw failure;
-          logger.warn("nvr_lens_call_idle_failed", `stage=${failure.stage} reason=${failure.reason} lens=${entry.lens}`);
+          logger.warn(`${entry.event}_idle_failed`, `stage=${failure.stage} reason=${failure.reason} ${entry.detail}`);
           entry.session = null;
           await this.#hangUpNvrCall(entry.station.serial, idle.session);
           if (!current()) throw new NvrTrialError("cancelled");
@@ -2702,12 +2802,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!current()) throw new NvrTrialError("cancelled");
     if (entry.session && taken.picture) {
       try {
-        logger.info("nvr_lens_call_observer_used", `lens=${entry.lens} first_video_ms=${await taken.picture}`);
+        logger.info(`${entry.event}_observer_used`, `${entry.detail} first_video_ms=${await taken.picture}`);
         return entry.session;
       } catch (error) {
         const failure = error instanceof NvrTrialError ? error : new NvrTrialError("video");
         if (failure.stage === "cancelled" || entry.controller.signal.aborted) throw failure;
-        logger.warn("nvr_lens_call_observer_failed", `stage=${failure.stage} reason=${failure.reason} lens=${entry.lens}`);
+        logger.warn(`${entry.event}_observer_failed`, `stage=${failure.stage} reason=${failure.reason} ${entry.detail}`);
         const old = entry.session; entry.session = null;
         await this.#hangUpNvrCall(entry.station.serial, old);
         if (!current()) throw new NvrTrialError("cancelled");
@@ -2727,6 +2827,88 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       await session.start();
       return session;
     } finally { if (phaseAbort) entry.controller.signal.removeEventListener("abort", phaseAbort); }
+  }
+
+  /**
+   * Admit one T8N00's multi-view camera: native NVR live view is on, and the
+   * NVR has at least two cameras its stitcher can carry, so the grid is more
+   * than one camera with eight blank cells.
+   */
+  nvrMultiViewAdmitted(stationSerial: string): boolean {
+    const station = this.#devices.get(stationSerial);
+    return !!station && station.model === "T8N00" && station.deviceType === 300
+      && station.category === "eufy_security" && !!this.config.experimentalNvrLive && !!this.config.normalNvrLive
+      && this.#nvrMultiViewRefusals.get(stationSerial) !== this.#nvrMultiViewRefusalKey(station)
+      && this.#nvrMultiViewCells(station).length >= 2;
+  }
+
+  /**
+   * The cameras in one T8N00's multi-view, in cell order: the children it
+   * plays natively, in channel order, leaving out models its stitcher can't
+   * carry, up to the 3x3's nine cells. Each S4 shows its Fixed lens.
+   */
+  #nvrMultiViewCells(station: MegaInventoryDevice): MegaInventoryDevice[] {
+    const children = [...this.#devices.values()].filter(device => device.parentSerial === station.serial && device.serial !== station.serial);
+    return children.filter(device => this.#normalNvrLiveBinding(device, station) && nvrStitchLenses(device.model, device.deviceType).length > 0
+      && children.filter(other => other.channel === device.channel).length === 1)
+      .sort((a, b) => a.channel! - b.channel!).slice(0, NVR_STITCH_CELLS[NVR_MULTIVIEW_PICTURE.mode]);
+  }
+
+  /** What binds a multi-view call to its cells and their lenses, so a change to any of them ends it. */
+  #nvrMultiViewLayout(cells: readonly MegaInventoryDevice[]): string {
+    return JSON.stringify(cells.map(cell => [cell.serial, this.#nvrBindingKey(cell), this.#nvrMultiViewLens(cell)]));
+  }
+
+  /** The lens a camera shows in its NVR's multi-view cell: the one chosen, or its first (the S4's Fixed lens). */
+  #nvrMultiViewLens(device: MegaInventoryDevice): 0 | 1 {
+    const lenses = nvrStitchLenses(device.model, device.deviceType);
+    const chosen = this.#nvrMultiViewLenses.get(device.serial);
+    if (chosen?.binding === this.#nvrBindingKey(device) && lenses.includes(chosen.value)) return chosen.value;
+    this.#nvrMultiViewLenses.delete(device.serial);
+    return lenses[0] ?? 0;
+  }
+
+  /** The lens choice this camera offers for its NVR's multi-view, or none. */
+  #nvrMultiViewLensOptions(device: MegaInventoryDevice): string[] {
+    const station = this.#devices.get(device.parentSerial);
+    return station && nvrStitchLenses(device.model, device.deviceType).length === 2 && this.nvrMultiViewAdmitted(station.serial)
+      && this.#nvrMultiViewCells(station).some(cell => cell.serial === device.serial) ? ["Fixed", "Movable"] : [];
+  }
+
+  /**
+   * Choose which lens a camera shows in its NVR's multi-view cell. It is its
+   * own setting, independent of Camera view, so the cell never changes under a
+   * viewer. Like Camera view it changes only while the multi-view is closed,
+   * and holds until the gateway restarts.
+   */
+  async setNvrMultiViewLens(serial: string, lens: number): Promise<CameraIdentity> {
+    this.#assertRtcPreparationIdle();
+    const device = this.#devices.get(serial);
+    if (!device || !this.#nvrMultiViewLensOptions(device).length) throw new NvrLiveControlError("disabled");
+    if (lens !== 0 && lens !== 1) throw new NvrLiveControlError("unavailable");
+    if (this.#nvrOwnCalls.has(JSON.stringify([device.parentSerial, "multiview"]))) throw new NvrLiveControlError("busy");
+    this.#nvrMultiViewLenses.set(serial, { binding: this.#nvrBindingKey(device), value: lens });
+    const identity = this.#nvrTrialIdentity(device)!;
+    this.#events?.camera(identity);
+    return identity;
+  }
+
+  /**
+   * Withdraw one NVR's multi-view after it refused a stitched start, with one
+   * log line, until the gateway restarts or the NVR's firmware or binding changes.
+   */
+  #refuseNvrMultiView(stationSerial: string, failure: NvrTrialError): void {
+    const station = this.#devices.get(stationSerial);
+    if (!station) return;
+    this.#nvrMultiViewRefusals.set(stationSerial, this.#nvrMultiViewRefusalKey(station));
+    const firmware = station.firmware && /^[0-9A-Za-z._-]{1,32}$/.test(station.firmware) ? station.firmware : "unknown";
+    logger.warn("nvr_multiview_unavailable", `reason=stitched_start_refused stage=${failure.stage} detail=${failure.reason} model=${safeLogModel(station.model)} firmware=${firmware}`);
+    const state = this.#stations.get(stationSerial);
+    if (state) try { this.#events?.station(this.#publishedStation(state)); } catch {}
+  }
+
+  #nvrMultiViewRefusalKey(station: MegaInventoryDevice): string {
+    return JSON.stringify([station.firmware, station.adminUserId, this.#startupGeneration]);
   }
 
   /** Everything that binds a call to this entry's camera, for a new call or one moved here. */
@@ -2767,7 +2949,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let phaseAbort: (() => void) | undefined;
     try {
 
-      // Beside open panes, a view first takes a call parked on this NVR.
+      // Beside open panes or a multi-view, a view first takes a call parked on this NVR.
       const idle = entry.idleCall;
       if (idle) {
         entry.idleCall = null;
@@ -3478,7 +3660,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   #clearNvrSettings(serial: string): void {
     const cached = this.#nvrSettings.get(serial); if (cached?.timer) clearTimeout(cached.timer);
-    this.#nvrSettings.delete(serial); this.#nvrViews.delete(serial);
+    this.#nvrSettings.delete(serial); this.#nvrViews.delete(serial); this.#nvrMultiViewLenses.delete(serial);
   }
 
   #nvrObserveOwners(raw: Awaited<ReturnType<MegaClient["inventory"]>>): void {
@@ -3540,7 +3722,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (!device || !this.#nvrLiveAdmitted(device, station)) throw new NvrLiveControlError("disabled");
     if (![0, 1, 2].includes(view) || view >= (this.#nvrProfile(device)?.views.length ?? 0)) throw new NvrLiveControlError("unavailable");
     if (!this.#nvrMediaChecks || this.#nvrMediaChecks.active(serial) || this.#nvrTrials.has(serial) || this.#streamStarts.has(serial)
-      || [...this.#nvrLensCalls.values()].some(entry => entry.device.serial === serial)
+      || [...this.#nvrOwnCalls.values()].some(entry => entry.device.serial === serial)
       || this.#nvrLiveJobs.has(device.parentSerial) || this.#recordingPeerReserved(serial) || this.#nvrControlReserved(device.parentSerial)) throw new NvrLiveControlError("busy");
     this.#nvrViews.set(serial, { binding: this.#nvrBindingKey(device), value: view });
     this.#publishNvrSettings(device, { night: null, quality: null, tracking: null });
@@ -5573,8 +5755,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     this.#nvrModePushTimes.clear();
     try { this.#events?.eventReceiverState("stopped"); } catch {}
     for (const value of this.#nvrSettings.values()) if (value.timer) clearTimeout(value.timer);
-    this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrExplicitOwners.clear();
-    await Promise.allSettled([...this.#nvrTrials.values(), ...this.#nvrLensCalls.values()].map(call => call.release())
+    this.#nvrSettings.clear(); this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear(); this.#nvrMultiViewRefusals.clear(); this.#nvrExplicitOwners.clear();
+    await Promise.allSettled([...this.#nvrTrials.values(), ...this.#nvrOwnCalls.values()].map(call => call.release())
       .concat([...this.#nvrIdleCalls.keys()].flatMap(station => this.#hangUpNvrIdleCalls(station)))); current();
     await Promise.allSettled([...this.#doorbellTrials.values()].map(trial => trial.release())); current();
     if (this.#generalRtcTrials.size) {
@@ -5753,7 +5935,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (generation !== this.#startupGeneration) return;
       if (!allowLoginRecovery || !this.#client.isSessionInvalidError(error)) throw error;
       for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
-      this.#nvrViews.clear();
+      this.#nvrViews.clear(); this.#nvrMultiViewLenses.clear();
       logger.warn("session_invalidated", "Mega session was invalidated; signing in again");
       const auth = await this.#client.connect(undefined, undefined, true);
       if (generation !== this.#startupGeneration) return;
@@ -5859,7 +6041,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         this.#dskKeys.has(device.serial),
       );
       this.#stations.set(device.serial, station);
-      events.station(this.#withStationVolumeTrials(station));
+      events.station(this.#publishedStation(station));
       logger.info("guard_mode_names_observed", `Guard mode names observed: model=${safeLogModel(device.model)} ${device.guardModeMetadataShape ?? "missing"}`);
       if (device.guardModeMetadataStructure !== undefined) {
         logger.info("guard_mode_metadata_observed", `model=${safeLogModel(device.model)} structure=${device.guardModeMetadataStructure}`);
@@ -6168,7 +6350,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         : initialHomeBaseState(device, this.#dskKeys.has(device.serial));
       this.#stations.set(device.serial, station);
-      events.station(this.#withStationVolumeTrials(station));
+      events.station(this.#publishedStation(station));
     }
     events.inventory(inventoryDiagnostics(devices));
     this.#syncNvrModeObserver();
@@ -7180,7 +7362,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
     // The foreground call can report modes itself. Resume the separate
     // observer only on a fresh inventory pass after the foreground lease ends.
-    if ([...this.#nvrTrials.values(), ...this.#nvrLensCalls.values()].some(entry => entry.station.serial === parent.serial)
+    if ([...this.#nvrTrials.values(), ...this.#nvrOwnCalls.values()].some(entry => entry.station.serial === parent.serial)
       || this.#nvrIdleCallCount(parent.serial)) {
       admission("unavailable"); this.#nvrModeObserver.setTarget(null); return;
     }
@@ -7224,7 +7406,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (preserveRtc && station.effectiveModeSource === "nvr_rtc" && this.#nvrModeObservationOwners.has(station.serial)) continue;
       const updated = { ...station, effectiveMode: null, effectiveModeReportedAt: null, effectiveModeSource: null };
       this.#stations.set(station.serial, updated);
-      try { events.station(this.#withStationVolumeTrials(updated)); } catch {}
+      try { events.station(this.#publishedStation(updated)); } catch {}
     }
     if (!preserveRtc) this.#nvrModeObservationOwners.clear();
   }
@@ -7246,11 +7428,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         effectiveMode: validGuardMode(event.effectiveMode) ? event.effectiveMode : station.effectiveMode,
       };
       this.#stations.set(station.serial, updated);
-      events.station(this.#withStationVolumeTrials(updated));
+      events.station(this.#publishedStation(updated));
     } else if (station?.controlsSupported && event.eventType === 10 && event.alarmType !== null) {
       const updated = { ...station, alarmActive: ![0, 1, 15, 16, 17].includes(event.alarmType) };
       this.#stations.set(station.serial, updated);
-      events.station(this.#withStationVolumeTrials(updated));
+      events.station(this.#publishedStation(updated));
     }
     const personName = personNameFromPush(event);
     events.pushDiagnostic({
@@ -7410,8 +7592,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   }
 
   /** Publish trial capabilities without granting HB2 the unrelated managed station commands. */
-  #withStationVolumeTrials(station: HomeBaseState): HomeBaseState {
+  /**
+   * Add the fields a station's exact model admits beyond its inventory state:
+   * the T8N00's multi-view camera, and the HomeBase 2 volume trials.
+   */
+  #publishedStation(station: HomeBaseState): HomeBaseState {
     const device = this.#devices.get(station.serial);
+    if (device?.model === "T8N00" && device.deviceType === 300) return { ...station, nvrMultiViewSupported: this.nvrMultiViewAdmitted(station.serial) };
     if (device?.model !== "T8010" || device.deviceType !== 0 || !this.config.experimentalModelControls) return station;
     return { ...station, volumeControlsExperimental: true,
       alarmVolumeControlSupported: this.#hb2VolumeTrialReady(station.serial, "alarmVolume"),
@@ -7452,7 +7639,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (access === "volume" && attempted) {
         const unknown = { ...this.#requireStation(serial), [field]: null, connected: false };
         this.#stations.set(serial, unknown);
-        this.#events?.station(this.#withStationVolumeTrials(unknown));
+        this.#events?.station(this.#publishedStation(unknown));
       }
       logger.warn(
         "station_command_failed",
@@ -7502,7 +7689,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (access === "volume") {
           const unavailable = { ...this.#requireStation(serial), connected: false };
           this.#stations.set(serial, unavailable);
-          this.#events?.station(this.#withStationVolumeTrials(unavailable));
+          this.#events?.station(this.#publishedStation(unavailable));
         }
         throw error;
       }
@@ -7544,7 +7731,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         }
         const updated = mergeHomeBaseState(this.#requireStation(serial), observed);
         this.#stations.set(serial, updated);
-        const published = this.#withStationVolumeTrials(updated);
+        const published = this.#publishedStation(updated);
         this.#events?.station(published);
         return published;
       } catch (error) {
@@ -7552,7 +7739,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         if (interruptMedia) {
           const updated = { ...this.#requireStation(serial), connected: false };
           this.#stations.set(serial, updated);
-          this.#events?.station(this.#withStationVolumeTrials(updated));
+          this.#events?.station(this.#publishedStation(updated));
         }
         throw error;
       } finally {

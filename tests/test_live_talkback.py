@@ -220,7 +220,7 @@ class LiveTalkbackTests(unittest.IsolatedAsyncioTestCase):
         reload_entry = AsyncMock()
         hass = SimpleNamespace(async_create_task=self.coordinator.hass.async_create_task,
                                config_entries=SimpleNamespace(async_reload=reload_entry))
-        coordinator = SimpleNamespace(cameras={"camera": self.camera}, hass=hass,
+        coordinator = SimpleNamespace(cameras={"camera": self.camera}, stations={}, hass=hass,
                                       async_add_listener=lambda fn: listeners.append(fn))
         entry = SimpleNamespace(entry_id="fixture", runtime_data=SimpleNamespace(coordinator=coordinator),
                                 options={}, async_on_unload=lambda fn: None)

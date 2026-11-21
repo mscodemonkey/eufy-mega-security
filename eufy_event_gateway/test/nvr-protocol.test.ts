@@ -7,7 +7,7 @@ import test from "node:test";
 import { IceCandidate, RTCIceCandidate } from "werift";
 import { diagnosticsPage } from "../src/diagnostics/page.js";
 import { NvrPtcsReassembler } from "../src/stream/nvr-ptcs-reassembly.js";
-import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, NvrTrialError } from "../src/stream/nvr-protocol.js";
+import { nvrApplication, nvrCandidate, nvrCommand, nvrHeartbeat, nvrMatchCamera, nvrNetworkHost, nvrOffer, nvrPackets, nvrVideo, nvrTrialSensor, nvrStateSummary, nvrStitchLenses, nvrStitchValid, NvrTrialError, type NvrStitch } from "../src/stream/nvr-protocol.js";
 import { loadConfig } from "../src/config.js";
 
 function offer(): string {
@@ -151,6 +151,60 @@ test('the stacked source asks for both lenses of one channel in one picture, len
   assert.deepEqual(JSON.parse(nvrApplication(nvrCommand('synthetic', 1103, 1, 9, 'both')).payload.toString()).payload,
     { channel_info: { array_size: 2, channel_array: [255, 9] } });
   for (const wrong of ['Both', 2, -1]) assert.throws(() => nvrCommand('synthetic', 1003, 1, 9, wrong as never));
+});
+
+test('one stitched start carries its layout, every cell in order and its size, for each layout', () => {
+  const start = (stitch: NvrStitch) => JSON.parse(nvrApplication(nvrCommand('synthetic', 1003, 1, 0, stitch)).payload.toString()).payload;
+  const grid = start({ mode: 3, width: 3840, height: 2160, cells: [0, 1, 2, 3, 4, 5, 6, 8, 9].map(channel => ({ channel, sensor: 0 as const })) });
+  assert.equal(grid.stitch_mode, 3);
+  assert.deepEqual(grid.chn_list, [0, 1, 2, 3, 4, 5, 6, 8, 9].map((chn, index) => ({ index, chn, sensor: 0 })));
+  assert.deepEqual(grid.stitch_resolution, { width: 3840, height: 2160 });
+  const single = start({ mode: 3, width: 3840, height: 2160, cells: [{ channel: 9, sensor: 0 }] });
+  const plain = JSON.parse(nvrApplication(nvrCommand('synthetic', 1003, 1, 9, 0)).payload.toString()).payload;
+  for (const field of ['ClientOS', 'entrytype', 'camera_type', 'streamtype', 'key', 'msg_id', 'audio_chn']) {
+    assert.equal(single[field], plain[field], `${field} is the gateway's own start field, unchanged`);
+  }
+  const quad = start({ mode: 2, width: 1920, height: 1080, cells: [{ channel: 0, sensor: 0 }, { channel: 3, sensor: 0 }, { channel: 9, sensor: 0 }, { channel: 9, sensor: 1 }] });
+  assert.equal(quad.stitch_mode, 2);
+  assert.deepEqual(quad.chn_list.map((cell: { chn: number; sensor: number }) => [cell.chn, cell.sensor]), [[0, 0], [3, 0], [9, 0], [9, 1]]);
+  const three = start({ mode: 6, width: 1920, height: 3240, cells: [{ channel: 7, sensor: 0 }, { channel: 0, sensor: 0 }, { channel: 1, sensor: 0 }] });
+  assert.equal(three.stitch_mode, 6);
+  assert.deepEqual(three.stitch_resolution, { width: 1920, height: 3240 });
+  assert.deepEqual(start({ mode: 5, width: 1280, height: 1440, cells: [{ channel: 9, sensor: 0 }, { channel: 9, sensor: 1 }] }),
+    JSON.parse(nvrApplication(nvrCommand('synthetic', 1003, 1, 9, 'both')).payload.toString()).payload, 'Both is the two-cell stacked stitch');
+});
+
+test('a stitch past its cells, beyond the decodable size, or with a repeated or malformed cell is never sent', () => {
+  const cell = (channel: number, sensor: 0 | 1 = 0) => ({ channel, sensor });
+  const nine = [0, 1, 2, 3, 4, 5, 6, 8, 9].map(channel => cell(channel));
+  for (const wrong of [
+    { mode: 3, width: 3840, height: 2160, cells: [...nine, cell(10)] },
+    { mode: 2, width: 1920, height: 1080, cells: nine.slice(0, 5) },
+    { mode: 6, width: 1920, height: 3240, cells: nine.slice(0, 4) },
+    { mode: 5, width: 1280, height: 1440, cells: nine.slice(0, 3) },
+    { mode: 4, width: 3840, height: 2160, cells: nine },
+    { mode: 1, width: 1920, height: 1080, cells: [cell(9)] },
+    { mode: 7, width: 1920, height: 1080, cells: [cell(9)] },
+    { mode: 3, width: 5760, height: 3240, cells: nine },
+    { mode: 3, width: 3844, height: 2160, cells: nine },
+    { mode: 3, width: 3840, height: 2160, cells: [] },
+    { mode: 3, width: 3840, height: 2160, cells: [cell(9), cell(9)] },
+    { mode: 3, width: 3840, height: 2160, cells: [{ channel: 9, sensor: 2 }] },
+    { mode: 3, width: 3840, height: 2160, cells: [cell(255)] },
+    { mode: 3, width: 3840, height: 2160, cells: [{ channel: '9', sensor: 0 }] },
+  ]) {
+    assert.equal(nvrStitchValid(wrong), false, JSON.stringify(wrong).slice(0, 80));
+    assert.throws(() => nvrCommand('synthetic', 1003, 1, 0, wrong as never), (error: unknown) => error instanceof NvrTrialError && error.stage === 'framing');
+  }
+  assert.equal(nvrStitchValid({ mode: 3, width: 3840, height: 2160, cells: [cell(9, 0), cell(9, 1)] }), true, 'both lenses of one camera may share a grid');
+});
+
+test('every camera behind an NVR can fill a stitched cell with its lens, the S4 with either, and the doorbell with neither', () => {
+  assert.deepEqual(nvrStitchLenses('T8214', 94), [], 'the E340 never fills a stitched cell, with either sensor');
+  assert.deepEqual(nvrStitchLenses('T8E00', 301), [0, 1], 'the S4 can show Fixed or Movable');
+  for (const [model, type] of [['T8416', 104], ['T8P10', 303], ['T8140', 14], ['T8172', 89]] as const) assert.deepEqual(nvrStitchLenses(model, type), [0]);
+  assert.deepEqual(nvrStitchLenses('T8214', 104), []);
+  assert.deepEqual(nvrStitchLenses('T9999', 1), [], 'an unknown camera is never stitched');
 });
 
 test('NVR discovery rejects ambiguous aliases and duplicate selected identities before video', () => {
