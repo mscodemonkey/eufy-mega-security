@@ -639,6 +639,12 @@ The `experimental_e30_locks` app option is off by default. Enable it only with
 an API token of at least 32 characters. The trial supports one standalone E30
 T85F1, type 206, on the US cloud route. Other models and regions remain disabled.
 
+The same option admits the Lever Smart Lock C33 (T85L0, type 201) as status
+only: a reported lock state binary sensor, battery, the last lock/unlock
+notification (method and user) and a last keypad lockout timestamp. Privacy
+mode reads as locked. No lock, unlock or settings controls are offered.
+Confirmed on one C33 (firmware 1.0.8.3) on the US route.
+
 EMS acts as an MQTT client of Eufy's cloud broker. Home Assistant receives a lock
 entity and battery sensor through EMS. It does not need its own MQTT broker.
 Both lock and unlock were physically confirmed on an off-door E30, with fresh
