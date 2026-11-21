@@ -119,29 +119,104 @@ facts and retain only the support level needed to judge them safely.
 
 ## Adding a device
 
-Create a minimal new record with:
+### Review the evidence before choosing an integration status
+
+1. Run `npm run catalogue:query -- MODEL` from `eufy_event_gateway`. Use an
+   existing record when the exact model and numeric type are already covered.
+   Queries also match display names and aliases. For example, `S380` finds the
+   `T8030` HomeBase.
+2. Compare the exact model code, numeric inventory type, connection and
+   capability with the closest implemented device. For a HomeBase route,
+   identify the parent model as well. Keep the reference revision and evidence
+   for event decoding, transport and real-device behaviour in the private
+   investigation. Bring only the normalized device facts into the catalogue.
+3. Choose the smallest change that fits the evidence.
+
+| Evidence | Catalogue change | Verification |
+| --- | --- | --- |
+| An app definition declares a feature and the integration path is unverified. | Record it as `declared` on the connection it describes. Use `recognised` for a new diagnostic-only identity. | Verify that the generated record has no handler binding and the model stays out of Home Assistant. |
+| The exact identity and route can use an implemented handler. | Use `ready_to_test` for the reviewed handler. Add an explicit event profile only when that existing profile fits. | Exercise an exact match, a near match and an unsupported or unresolved connection. Arrange focused real-device confirmation. |
+| The device requires a different decoder, command or route. | Record the known identity and evidence. Identify the missing behaviour in the investigation. | Qualify the missing implementation in a separate change with a focused fixture. Treat capability and connection evidence independently. |
+
+Review shared numeric types before adding a record. Some camera admission still
+uses numeric type, so a `recognised` row alone may leave an existing type-wide
+handler available. If the new model can reach that handler unexpectedly, review
+the exact model/type admission rule before claiming diagnostic-only behaviour.
+
+### Example 1 · A recognised camera with declared motion
+
+Try this with a synthetic model in a disposable checkout. From
+`eufy_event_gateway`, scaffold its YAML file.
 
 ```sh
-npm run catalogue:new -- T1234 "Camera name"
+npm run catalogue:new -- T9599 "Synthetic camera"
 ```
 
-Alternatively, copy `DEVICE_TEMPLATE.yaml`. Add only what is known, remove the
-example sections that do not apply, then run `npm run catalogue:check` from
-`eufy_event_gateway`.
+In `device_catalogue/devices/t9599-synthetic-camera.yaml`, retain
+`integration.status: recognised`, set `device_type: 9599` and replace the
+empty capabilities map with these declaration facts.
 
-Use the model query when locating a record:
+```yaml
+capabilities:
+  events:
+    motion:
+      connections:
+        direct:
+          status: declared
+```
+
+Generate the runtime data, validate the catalogue and query the record.
 
 ```sh
-npm run catalogue:query -- T817L
-npm run catalogue:query -- T817L night_vision
+npm run catalogue:generate
+npm run catalogue:check
+npm run catalogue:query -- T9599 motion
 ```
 
-Queries also match a record's exact display name and aliases, so `S380` can
-locate the `T8030` HomeBase record.
+Expect a recognised device, a direct motion declaration and no camera handler or
+event profile. The synthetic regression below exercises that inventory row and
+verifies that it does not enter the camera integration.
 
-Do not add serial numbers, account details, camera names, credentials, or raw
-payloads. Model numbers, numeric device types, protocol parameter identifiers,
-and public evidence links are suitable for this catalogue.
+### Example 2 · Reuse a reviewed direct event profile
+
+Query the standalone 4G LTE Cam S330 to see the existing binding.
+
+```sh
+npm run catalogue:query -- T86P2
+```
+
+An exact compatible camera can select the same handler through this integration
+block after review of its identity, route and event behaviour.
+
+```yaml
+integration:
+  status: ready_to_test
+  handler: camera
+  event_profile:
+    id: motion-person-pet-vehicle-sound
+    connection: direct
+```
+
+In the disposable checkout, apply that block to the synthetic record and
+regenerate and check the catalogue again. The test below runs both versions of
+the record against the real generator and capability selector in a temporary
+copy.
+
+```sh
+node --import tsx --test test/catalogue-event-profiles.test.ts
+```
+
+The exact primary model and type on the direct route select motion, person,
+pet, vehicle and sound. An alias, alternate numeric type, attached route or
+unresolved route leaves this profile unapplied. The test leaves motion evidence
+at `declared`. For a real device, update the evidence entry when that event is
+observed on its exact connection. Video, pictures, audio and controls each
+require their own evidence.
+
+Before submitting a real record, review the YAML beside its generated diff.
+Keep serials, account details, configured names, credentials, raw captures and
+vendor definitions out of Git. Exclude the synthetic example from the shipped
+catalogue.
 
 ## Supporting files
 
