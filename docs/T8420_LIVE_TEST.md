@@ -16,7 +16,9 @@ After installing the containing app and integration release, enable
 **Experimental T8420 live video** in the app configuration. Keep the existing
 account, camera and encryption settings unchanged.
 
-Open one normal HA camera view for about twenty seconds, then close it. If it
+The opted-in route answers the exact observed channel-zero device keepalive from its selected peer. It sends no proactive or periodic keepalive command and does not extend the normal session limit. This response is supported by official-app observations, while EMS long-session behaviour remains unconfirmed.
+
+Open one normal HA camera view for up to ninety seconds, then close it. If it
 shows moving video, reopen it once and close it afterwards. Turn the experimental
 option off after the check. No external capture or private footage is needed.
 
