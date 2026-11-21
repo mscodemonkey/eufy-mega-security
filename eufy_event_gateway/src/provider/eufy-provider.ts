@@ -5833,7 +5833,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       if (sensor) events.sensor(sensor);
     }
     const manifests = devices.map((device) => describeCameraCapabilities(device, {
-      eventProfile: eventProfiles.get(device.serial),
+      eventProfile: eventProfiles.get(device.serial) ?? null,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
       routeReady: isPpcsRouteReady(device, this.#devices, dskPeerSerials) || this.#doorbellRtcBinding(device),
@@ -6182,7 +6182,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     events.inventory(inventoryDiagnostics(devices));
     this.#syncNvrModeObserver();
     events.cameraCapabilities(devices.map((device) => describeCameraCapabilities(device, {
-      eventProfile: eventProfiles.get(device.serial),
+      eventProfile: eventProfiles.get(device.serial) ?? null,
       doorbellSupported: isDoorbellDevice(device),
       streamSupported: isPpcsStreamSupported(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
       routeReady: isPpcsRouteReady(device, this.#devices, dskPeers) || this.#doorbellRtcBinding(device),
