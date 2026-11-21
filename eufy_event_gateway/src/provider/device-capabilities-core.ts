@@ -7,12 +7,13 @@
  * normalized camera, station, and standalone-sensor paths Home Assistant may use.
  */
 
-import type { CameraCapability, CameraCapabilityManifest, CapabilityMatrixRow, DeviceCapabilityManifest, DetectionKind } from "../domain/types.js";
+import type { CameraCapability, CameraCapabilityManifest, CameraEventProfileDecision, CapabilityMatrixRow, DeviceCapabilityManifest, DetectionKind } from "../domain/types.js";
 import { CAMERA_CAPABILITY_CORE, catalogueIntegrationStatus, hasMainsBatterySentinel, KNOWN_CAMERA_DEVICE_TYPES, megaDeviceRole, NON_CAMERA_DEVICE_TYPES } from "./camera-capability-core.js";
 import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
 import { ENTRY_SENSOR_HEALTH_CAPABILITY_CORE, SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { GENERATED_CAMERA_EVENT_PROFILES, type CameraEventProfileId } from "./devices/generated-catalogue.js";
 import { isT8442Camera } from "./t8442-profile.js";
 import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
@@ -56,6 +57,30 @@ export function isSupportedCameraType(device: { readonly category: string | null
   return device.deviceType !== 95 || catalogueIntegrationStatus(device.model, device.deviceType) === "ready_to_test";
 }
 
+type ResolvedCameraEventProfile = CameraEventProfileDecision & { readonly profile: CameraEventProfileId };
+
+const CAMERA_EVENT_PROFILES: Readonly<Record<CameraEventProfileId, readonly DetectionKind[]>> = {
+  "motion-person-pet-vehicle-sound": ["motion", "person", "pet", "vehicle", "sound"],
+};
+
+/**
+ * Match a reviewed binding to the current route observation.
+ * An absent binding leaves the legacy projection and diagnostic shape in place.
+ */
+export function resolveCameraEventProfile(
+  device: Pick<CapabilityInventoryRow, "category" | "model" | "deviceType">,
+  homeBaseAttached: boolean | null | undefined,
+): ResolvedCameraEventProfile | null {
+  if (device.category !== "eufy_security") return null;
+  const model = device.model.toUpperCase();
+  const binding = GENERATED_CAMERA_EVENT_PROFILES.find((entry) =>
+    entry.model === model && entry.deviceType === device.deviceType && entry.connection === "direct");
+  if (!binding || !isSupportedCameraType(device)) return null;
+  const reason = homeBaseAttached === false ? "matched"
+    : homeBaseAttached === true ? "route_mismatch" : "route_unresolved";
+  return { profile: binding.profile, reason };
+}
+
 /**
  * Limit detection entities to the reviewed model and route profiles.
  *
@@ -67,7 +92,9 @@ export function isSupportedCameraType(device: { readonly category: string | null
 export function cameraDetectionKinds(
   device: Pick<CapabilityInventoryRow, "category" | "model" | "deviceType">,
   homeBaseAttached: boolean | null | undefined,
+  eventProfile = resolveCameraEventProfile(device, homeBaseAttached),
 ): DetectionKind[] | undefined {
+  if (eventProfile?.reason === "matched") return [...CAMERA_EVENT_PROFILES[eventProfile.profile]];
   if (device.category !== "eufy_security") return undefined;
   const model = device.model.toUpperCase();
   if (isT8442Camera(device)) return ["motion", "person", "pet", "vehicle"];
@@ -79,7 +106,6 @@ export function cameraDetectionKinds(
   if ((model === "T8410C" || model === "T8410C21") && device.deviceType === 31) {
     return ["motion", "person", "pet", "crying", "sound"];
   }
-  if (model === "T86P2" && device.deviceType === 111) return ["motion", "person", "pet", "vehicle", "sound"];
   if ((model === "T8224" && device.deviceType === 96)
     || (model === "T8422" && device.deviceType === 37)
     || (model === "T8404" && device.deviceType === 314)
@@ -94,6 +120,7 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   readonly routeReady?: boolean;
   readonly homeBaseAttached?: boolean;
   readonly standaloneNightVisionSupported?: boolean;
+  readonly eventProfile?: CameraEventProfileDecision | null;
 }): CameraCapabilityManifest {
   if (isCareBabyMonitor(device)) {
     const matrix: CapabilityMatrixRow[] = [
@@ -149,7 +176,8 @@ export function describeCameraCapabilities(device: CapabilityInventoryRow, optio
   const reviewCandidate = !acceptedAsCamera && device.category === "eufy_security"
     && !NON_CAMERA_DEVICE_TYPES.has(device.deviceType ?? -1)
     && peerRouteReady && cameraReadEvidence >= 2;
-  return { serial: device.serial, model: device.model, deviceType: device.deviceType, acceptedAsCamera, reviewCandidate, peerRouteReady, reason, capabilities, matrix, unmappedParamIds, unmappedParamCount: unmapped.length };
+  return { serial: device.serial, model: device.model, deviceType: device.deviceType, acceptedAsCamera, reviewCandidate, peerRouteReady, reason, capabilities, matrix, unmappedParamIds, unmappedParamCount: unmapped.length,
+    ...(options.eventProfile ? { eventProfile: options.eventProfile } : {}) };
 }
 
 /** Return one manifest for each recognized non-camera or doorbell family. */

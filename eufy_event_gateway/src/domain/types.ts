@@ -726,13 +726,26 @@ export interface CapabilityMatrixRow {
   readonly note: string | null;
 }
 
+/** Explains whether the reviewed event profile applies to the current connection. */
+export interface CameraEventProfileDecision {
+  /** Project-owned catalogue profile identifier. */
+  readonly profile: string;
+
+  /** A match selects entity exposure and carries no claim about event delivery. */
+  readonly reason: "matched" | "route_mismatch" | "route_unresolved";
+}
+
 /** Shape-only camera support decision, without a current value or write path. */
 export interface CameraCapabilityManifest {
   readonly serial: string;
   readonly model: string;
   readonly deviceType: number | null;
   readonly acceptedAsCamera: boolean;
+
+  /** Present for an exact admitted identity with an explicit catalogue binding. */
+  readonly eventProfile?: CameraEventProfileDecision;
   readonly reviewCandidate: boolean;
+
   /** Peer transport prerequisites, independent of camera-type admission. */
   readonly peerRouteReady: boolean;
   readonly reason: "exact-e21-profile" | "supported-camera-type" | "catalogued-camera-type" | "non-security-category" | "unrecognized-camera-type";

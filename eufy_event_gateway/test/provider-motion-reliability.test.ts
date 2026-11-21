@@ -13,6 +13,7 @@ import { MegaClient } from "../src/mega/client.js";
 import { MegaPushReceiver } from "../src/mega/push.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 import { CameraControlAcknowledgementTimeoutError, FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import type { CameraCapabilityManifest } from "../src/domain/types.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import { observeLogEvents } from "../src/logging.js";
 
@@ -58,10 +59,18 @@ async function fixture(context: TestContext, standalone = false, stationModel = 
   context.mock.method(globalThis, "setTimeout", (callback: () => void, milliseconds?: number) => schedule(callback, milliseconds === 2000 ? 0 : milliseconds));
   const provider = new EufyProvider({ username: "synthetic", password: "redacted", country: "AU", persistentDirectory: directory, maxStreamSeconds: 120 });
   const published: unknown[][] = [];
-  const events = new Proxy({}, { get: (_target, property) => property === "streamStarted"
-    ? (...arguments_: unknown[]) => { published.push(arguments_); } : () => undefined }) as ProviderEvents;
+  const inventoryPublications: { readonly milliseconds: number; readonly manifests: readonly CameraCapabilityManifest[] }[] = [];
+  const callbacks = {
+    streamStarted: (...arguments_: unknown[]) => { published.push(arguments_); },
+    cameraCapabilities: (manifests: readonly CameraCapabilityManifest[]) => {
+      inventoryPublications.push({ milliseconds: performance.now(), manifests });
+    },
+  };
+  const events = new Proxy(callbacks, {
+    get: (target, property) => target[property as keyof typeof callbacks] ?? (() => undefined),
+  }) as unknown as ProviderEvents;
   await provider.start(events); await new Promise(resolve => setImmediate(resolve));
-  return { provider, sessions, closes, start, write, inventory, published, setMotion: (value: boolean) => { motion = value; }, setEnabled: (value: boolean | undefined) => { enabled = value; },
+  return { provider, sessions, closes, start, write, inventory, published, inventoryPublications, setMotion: (value: boolean) => { motion = value; }, setEnabled: (value: boolean | undefined) => { enabled = value; },
     dispose: async () => { await provider.close(); assert.equal(network.mock.callCount(), 0); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -110,13 +119,19 @@ for (const setting of ["motion", "enablement"] as const) {
   }
 }
 
-for (const setting of ["motion", "enablement"] as const) {
-  test(`camera ${setting} confirms without waiting for a different HomeBase's connection key`, async context => {
+for (const [setting, cameraCount] of [
+  ["motion", 1], ["motion", 10], ["motion", 50], ["enablement", 1],
+] as const) {
+  test(`camera ${setting} confirms without waiting for a different HomeBase's connection key at ${cameraCount} cameras`, async context => {
     const f = await fixture(context, false, "T8010", false, "synthetic-base", 1, undefined, 1035);
     const originalInventory = MegaClient.prototype.inventory;
     const inventory = context.mock.method(MegaClient.prototype, "inventory", async function (this: MegaClient, ...args: Parameters<typeof originalInventory>) {
       const response = await originalInventory.apply(this, args);
-      return { ...response, devices: [...response.devices, {
+      const cameras = Array.from({ length: cameraCount - 1 }, (_, i) => ({
+        device_sn: `fixture-camera-${i + 1}`, device_model: "T86P2", device_type: 111,
+        device_channel: 0, category: "eufy_security", params: [],
+      }));
+      return { ...response, devices: [...response.devices, ...cameras, {
         device_sn: "different-base", device_model: "T8030", device_type: 18, category: "eufy_security",
         p2p_did: "TEST-12345678-TEST", p2p_conn: "different-route", member: { admin_user_id: "owner" },
       }] };
@@ -124,19 +139,22 @@ for (const setting of ["motion", "enablement"] as const) {
     const discovery = Promise.withResolvers<{ "different-base": { key: string; expiresAt: null } }>();
     const keys = context.mock.method(MegaClient.prototype, "dskKeys", () => discovery.promise);
     const writeEnablement = context.mock.method(FirstPartyPpcsSession.prototype, "writeCameraEnabled", async () => { f.setEnabled(false); });
-    let completed = false;
+    let completedAt: number | undefined;
+    const publicationIndex = f.inventoryPublications.length;
+    const startedAt = performance.now();
     const setSwitch = () => setting === "motion" ? f.provider.setCameraMotionDetection("camera", false)
       : f.provider.setCameraEnabled("camera", false);
     const confirmation = setSwitch().then(identity => {
         assert.equal(setting === "motion" ? identity.motionDetectionEnabled : identity.enabled, false);
-        completed = true;
+        completedAt = performance.now();
       });
     void confirmation.catch(() => undefined);
     let nextConfirmation: Promise<unknown> | undefined;
     try {
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(keys.mock.callCount(), 1);
-      assert.equal(completed, true);
+      assert.notEqual(completedAt, undefined);
+      assert.equal(f.inventoryPublications.length, publicationIndex);
       assert.equal(inventory.mock.callCount(), 1);
 
       let nextCompleted = false;
@@ -150,6 +168,17 @@ for (const setting of ["motion", "enablement"] as const) {
       await nextConfirmation;
       assert.equal(inventory.mock.callCount(), 2);
       assert.equal(keys.mock.callCount(), 1);
+      const settled = f.inventoryPublications[publicationIndex];
+      assert.ok(settled && completedAt !== undefined);
+      assert.deepEqual(settled.manifests.filter(row => row.acceptedAsCamera).map(row => row.serial), [
+        "camera", ...Array.from({ length: cameraCount - 1 }, (_, i) => `fixture-camera-${i + 1}`),
+      ]);
+      if (process.env.EUFY_SCALING_SAMPLES === "1") {
+        context.diagnostic(`scaling-sample ${JSON.stringify({
+          scenario: `inventory-${setting}-${cameraCount}`,
+          confirmationMs: completedAt - startedAt, publicationMs: settled.milliseconds - startedAt,
+        })}`);
+      }
     } finally {
       discovery.resolve({ "different-base": { key: "synthetic", expiresAt: null } });
       try { await Promise.all([confirmation, nextConfirmation]); } finally { await f.dispose(); }

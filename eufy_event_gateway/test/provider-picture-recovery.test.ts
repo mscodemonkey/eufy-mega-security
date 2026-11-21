@@ -15,6 +15,7 @@ import { MegaPushReceiver, parsePushEvent, type MegaPushEvent } from "../src/meg
 import type { PushRecordingReference } from "../src/mega/push-recording-reference.js";
 import { MediaHttpError } from "../src/mega/media-request-diagnostic.js";
 import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
+import { EventNameHistoryError } from "../src/stream/homebase-event-names.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 
 const path = "/zx/hdd_data0/Camera00/202611/20261102090000/20261102092000.zxvideo";
@@ -71,6 +72,12 @@ async function fixture(context: TestContext, mode = "success", recoveryEnabled =
   let release: (() => void) | undefined, signal: AbortSignal | undefined, returned: Buffer | undefined;
   const recovery = context.mock.method(FirstPartyPpcsSession.prototype, "recoverEventPicture", async (reference: PushRecordingReference, operationSignal: AbortSignal) => {
     assert.equal(reference.id, "42"); assert.equal(reference.storagePath, path); signal = operationSignal;
+    if (mode.startsWith("recovery-")) {
+      if (mode === "recovery-timeout") throw new EventNameHistoryError("timeout");
+      if (mode === "recovery-invalid") throw new EventNameHistoryError("invalid_response");
+      if (mode === "recovery-forged") throw new EventNameHistoryError("private-exception-content" as "unavailable");
+      throw new Error("private-exception-content");
+    }
     if (["superseded", "shutdown", "restart"].includes(mode)) await new Promise<void>(resolve => { release = resolve; });
     returned = Buffer.from(jpeg);
     return returned;
@@ -295,6 +302,31 @@ for (const picture of [false, true]) {
       assert.equal(f.recovery.mock.callCount(), 0);
       assert.equal(f.stationStarts.mock.callCount(), 0);
       assert.equal(f.pictures.length, 0);
+    } finally { await f.provider.close(); }
+  });
+}
+
+
+for (const picture of [false, true]) for (const [mode, result] of [
+  ["recovery-timeout", "timeout"], ["recovery-invalid", "invalid_response"],
+  ["recovery-forged", "unknown"], ["recovery-unknown", "unknown"],
+]) {
+  test(`E340 automatic recovery keeps safe failure categories: ${mode}, cloud=${picture}`, async context => {
+    const logs: string[] = [];
+    context.mock.method(process.stdout, "write", (line: string | Uint8Array) => { logs.push(String(line)); return true; });
+    const f = await fixture(context, mode, true, "homebase3", true);
+    try {
+      f.send(f.event("private-visit-value", picture)); await settle();
+      const line = logs.find(value => value.includes("event=push_snapshot_recovery_unavailable"));
+      assert.ok(line);
+      assert.match(line, new RegExp(`reason=matching_thumbnail_unavailable recovery_result=${result}\\b`));
+      assert.doesNotMatch(line, /private-exception-content|private-visit-value|invented-child|invented-parent|example.invalid/);
+      assert.equal(f.recovery.mock.callCount(), 1);
+      assert.equal(f.stationStarts.mock.callCount(), 1);
+      assert.equal(f.drained.mock.callCount(), 1);
+      assert.equal(f.cloud.mock.callCount(), picture ? 1 : 0);
+      assert.equal(f.pictures.length, 0);
+      assert.equal(f.network.mock.callCount(), 0);
     } finally { await f.provider.close(); }
   });
 }

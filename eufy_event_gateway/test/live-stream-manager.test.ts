@@ -1775,3 +1775,138 @@ for (const mode of ["transport-start", "fresh-frame"] as const) {
     } finally { await manager.close(); }
   });
 }
+
+test("scaling baseline shares H.265 children and isolates stall, reopen and idle cleanup", async context => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const state = new GatewayState();
+  const other = { ...camera, serial: "camera-2" };
+  state.registerCamera(camera);
+  state.registerCamera(other);
+  const sources = new Map<string, PassThrough>();
+  const starts: string[] = [];
+  const stops: string[] = [];
+  const fakeMediaChild = () => {
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      exitCode: null, signalCode: null as NodeJS.Signals | null,
+      kill(signal: NodeJS.Signals): boolean { child.signalCode = signal; return true; },
+    });
+    return child;
+  };
+  const viewers: ReturnType<typeof fakeMediaChild>[] = [];
+  const snapshots: ReturnType<typeof fakeMediaChild>[] = [];
+  const createChild = (children: ReturnType<typeof fakeMediaChild>[]): ChildProcessWithoutNullStreams => {
+    const child = fakeMediaChild();
+    children.push(child);
+    return child as unknown as ChildProcessWithoutNullStreams;
+  };
+  const active = () => ({
+    sources: sources.size,
+    viewers: viewers.filter(child => child.signalCode === null).length,
+    snapshots: snapshots.filter(child => child.signalCode === null).length,
+  });
+  const manager = new LiveStreamManager(state, {} as never, {
+    async startStream(serial) {
+      starts.push(serial);
+      const source = new PassThrough();
+      sources.set(serial, source);
+      manager.attachSource(serial, source, () => "h265");
+    },
+    async stopStream(serial) {
+      stops.push(serial);
+      sources.get(serial)?.destroy();
+      sources.delete(serial);
+    },
+  }, 5, undefined, () => createChild(viewers), () => createChild(snapshots), 40);
+  const warnings: Error[] = [];
+  manager.on("warning", (error: Error) => warnings.push(error));
+  const hevc = Buffer.concat([
+    annexBNal(0x40, 1, 12), annexBNal(0x42, 1, 1),
+    annexBNal(0x44, 1, 0xc0), annexBNal(0x26, 1, 0x80, 1),
+  ]);
+  const h264 = (marker: number) => Buffer.concat([
+    annexBNal(0x67, 0x42, 0, 0x1f), annexBNal(0x68, 0xce, 6), annexBNal(0x65, marker),
+  ]);
+  const open = async (serial: string) => {
+    const stream = new PassThrough();
+    const response = stream as unknown as ServerResponse;
+    response.writeHead = (() => response) as ServerResponse["writeHead"];
+    const bytes: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => bytes.push(chunk));
+    await manager.addClient(serial, response);
+    return { stream, bytes };
+  };
+
+  try {
+    const start = performance.now();
+    const first = await open(camera.serial);
+    sources.get(camera.serial)!.write(hevc);
+    viewers[0]!.stdout.write(h264(0xaa));
+    const firstViewerMs = performance.now() - start;
+    assert.ok(Buffer.concat(first.bytes).includes(annexBNal(0x65, 0xaa)));
+    const singleViewer = active();
+    assert.deepEqual(singleViewer, { sources: 1, viewers: 1, snapshots: 1 });
+
+    const joining = performance.now();
+    const second = await open(camera.serial);
+    const third = await open(camera.serial);
+    const joinTwoViewersMs = performance.now() - joining;
+    assert.ok(second.bytes.length > 0 && third.bytes.length > 0);
+    const threeViewers = active();
+    assert.deepEqual(threeViewers, singleViewer);
+    assert.deepEqual(starts, [camera.serial]);
+    second.stream.emit("close");
+    context.mock.timers.tick(6);
+    assert.deepEqual(stops, []);
+
+    const startingOther = performance.now();
+    const independent = await open(other.serial);
+    sources.get(other.serial)!.write(hevc);
+    viewers[1]!.stdout.write(h264(0xbb));
+    const secondCameraMs = performance.now() - startingOther;
+    assert.ok(Buffer.concat(independent.bytes).includes(annexBNal(0x65, 0xbb)));
+    assert.ok(!Buffer.concat(first.bytes).includes(annexBNal(0x65, 0xbb)));
+    const twoCameras = active();
+    assert.deepEqual(twoCameras, { sources: 2, viewers: 2, snapshots: 2 });
+
+    context.mock.timers.tick(25);
+    sources.get(other.serial)!.write(annexBNal(0x26, 1, 0x80, 2));
+    context.mock.timers.tick(10);
+    await Promise.resolve();
+    assert.equal(first.stream.writableEnded, true);
+    assert.equal(third.stream.writableEnded, true);
+    assert.equal(independent.stream.writableEnded, false);
+    assert.deepEqual(stops, [camera.serial]);
+    assert.deepEqual(active(), singleViewer);
+    assert.deepEqual(starts, [camera.serial, other.serial]);
+    viewers[1]!.stdout.write(h264(0xcc));
+    assert.ok(Buffer.concat(independent.bytes).includes(annexBNal(0x65, 0xcc)));
+
+    const beforeReopening = viewers.length;
+    const reopening = performance.now();
+    const retry = await open(camera.serial);
+    sources.get(camera.serial)!.write(hevc);
+    assert.deepEqual(active(), twoCameras);
+    const reopenConverterStarts = viewers.length - beforeReopening;
+    viewers.at(-1)!.stdout.write(h264(0xdd));
+    const reopenMs = performance.now() - reopening;
+    assert.ok(Buffer.concat(retry.bytes).includes(annexBNal(0x65, 0xdd)));
+    assert.deepEqual(starts, [camera.serial, other.serial, camera.serial]);
+
+    retry.stream.emit("close");
+    independent.stream.emit("close");
+    context.mock.timers.tick(5);
+    await Promise.resolve();
+    assert.deepEqual(active(), { sources: 0, viewers: 0, snapshots: 0 });
+    assert.deepEqual(stops, [camera.serial, camera.serial, other.serial]);
+    assert.equal(warnings.length, 1);
+    if (process.env.EUFY_SCALING_SAMPLES === "1") {
+      context.diagnostic(`scaling-sample ${JSON.stringify({
+        scenario: "media-h265", firstViewerMs, joinTwoViewersMs, secondCameraMs, reopenMs,
+        singleViewer, threeViewers, twoCameras, reopenConverterStarts, afterCleanup: active(),
+      })}`);
+    }
+  } finally {
+    await manager.close();
+  }
+});

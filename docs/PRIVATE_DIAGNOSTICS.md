@@ -49,6 +49,13 @@ This is the gateway app's page, rather than the integration's **Download
 diagnostics** menu under **Settings > Devices & services**. That menu downloads
 an information-only report and doesn't open the capture tool.
 
+In that report, a camera with a catalogue event profile can include an
+`eventProfile` decision. `matched` means the gateway selected that profile's
+event entities. `route_mismatch` means the current connection falls outside
+the profile. `route_unresolved` means the gateway could not establish the
+connection from inventory. A match describes entity selection. Actual event
+delivery is recorded separately.
+
 If you run the gateway separately and already have its API token, enter it and
 click **Load devices**. This is the gateway's token, not your Eufy password. Keep
 it private and don't send it with your capture.

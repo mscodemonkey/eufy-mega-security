@@ -17,7 +17,7 @@ import { MegaPushReceiver } from "../src/mega/push.js";
 import { EufyProvider, isPpcsStreamSupported, parseMegaInventory } from "../src/provider/eufy-provider.js";
 import { describeCameraCapabilities, cameraDetectionKinds, isSupportedCameraType } from "../src/provider/device-capabilities-core.js";
 import { GENERATED_CATALOGUE_DEVICES } from "../src/provider/devices/generated-catalogue.js";
-import type { CameraIdentity } from "../src/domain/types.js";
+import type { CameraCapabilityManifest, CameraIdentity } from "../src/domain/types.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 
 const profiles = [
@@ -111,11 +111,15 @@ test("C220 original admission is exact and keeps the existing v2 path", () => {
   assert.equal(isSupportedCameraType({ ...base, model: "T8W11", deviceType: 10010 }), true);
 });
 
-test("provider publishes exact profiles and refuses aliases or incomplete live routes", async context => {
+test("provider publishes exact profiles and refuses aliases or incomplete live routes", { timeout: 5_000 }, async context => {
   const directory = await mkdtemp(join(tmpdir(), "reporter-profiles-"));
   const identities = new Map<string, CameraIdentity>();
   const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
-  context.mock.method(globalThis, "setInterval", (() => ({ unref() {} })) as unknown as typeof setInterval);
+  let refreshInventory: (() => void) | undefined;
+  context.mock.method(globalThis, "setInterval", ((callback: () => void) => {
+    refreshInventory = callback;
+    return { unref() {} };
+  }) as unknown as typeof setInterval);
   context.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
   context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
   context.mock.method(MegaPushReceiver.prototype, "start", async () => {});
@@ -145,8 +149,18 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
   );
   context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices }));
   context.mock.method(MegaClient.prototype, "dskKeys", async () => Object.fromEntries(devices.filter(row => row.device_sn !== "no-key").map(row => [row.device_sn, { key: "fixture", expiresAt: null }])));
-  const events = new Proxy({}, { get: (_target, key) => key === "camera"
-    ? (identity: CameraIdentity) => identities.set(identity.serial, identity) : () => {} }) as ProviderEvents;
+  let manifests: readonly CameraCapabilityManifest[] = [];
+  let inventoryPublished: ((value: readonly CameraCapabilityManifest[]) => void) | undefined;
+  const callbacks = {
+    camera: (identity: CameraIdentity) => identities.set(identity.serial, identity),
+    cameraCapabilities: (value: readonly CameraCapabilityManifest[]) => {
+      manifests = value;
+      inventoryPublished?.(value);
+    },
+  };
+  const events = new Proxy(callbacks, {
+    get: (target, key) => target[key as keyof typeof callbacks] ?? (() => {}),
+  }) as unknown as ProviderEvents;
   const provider = new EufyProvider({ username: "fixture", password: "fixture", country: "AU", persistentDirectory: directory, maxStreamSeconds: 120 });
   try {
     await provider.start(events);
@@ -166,6 +180,27 @@ test("provider publishes exact profiles and refuses aliases or incomplete live r
       assert.equal(identities.has(row.serial), false);
       await assert.rejects(provider.startStream(row.serial), /camera|support/i);
       await assert.rejects(async () => provider.setCameraEnabled(row.serial, true), /camera|support/i);
+    }
+    const profile = "motion-person-pet-vehicle-sound";
+    assert.deepEqual(manifests.find(({ serial }) => serial === "lte")?.eventProfile, { profile, reason: "matched" });
+    assert.equal(manifests.find(({ serial }) => serial === "flood")?.eventProfile, undefined);
+    const lte = devices.find(({ device_sn }) => device_sn === "lte");
+    assert.ok(lte);
+    assert.ok(refreshInventory);
+    for (const [parent, reason] of [
+      ["missing-parent", "route_unresolved"],
+      ["s120-parent", "route_mismatch"],
+      ["", "matched"],
+    ] as const) {
+      lte.parent_sn = parent;
+      const published = Promise.withResolvers<readonly CameraCapabilityManifest[]>();
+      inventoryPublished = published.resolve;
+      refreshInventory();
+      const refreshed = await published.promise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(refreshed.find(({ serial }) => serial === "lte")?.eventProfile, { profile, reason });
+      assert.deepEqual(identities.get("lte")?.supportedDetections,
+        reason === "matched" ? ["motion", "person", "pet", "vehicle", "sound"] : undefined);
     }
     assert.equal(network.mock.callCount(), 0);
   } finally {
