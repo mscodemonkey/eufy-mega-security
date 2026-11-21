@@ -15,6 +15,8 @@
 - Move inventory normalization and merge rules into a separate module while preserving existing refresh, entity and session behaviour.
 - Add worked catalogue-onboarding examples and repeatable synthetic scaling tests for device inventory and shared media sessions.
 
+- Add opt-in status-only support for the C33 T85L0 on the tested US route, including reported lock state, battery, access context and the last keypad lockout time. Lock, unlock and settings writes remain disabled. Thanks to @feedthedogs for the contribution and hardware checks.
+
 ## 0.1.275
 
 - Extend the disabled-by-default C35 camera-enabled trial to exact owner-bound HomeBase 3 child routes, requiring a fresh reported baseline and single-write confirmation. Physical camera behaviour remains unconfirmed.
