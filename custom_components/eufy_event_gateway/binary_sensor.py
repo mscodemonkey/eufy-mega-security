@@ -180,6 +180,16 @@ class EufyReportedLockState(EufyLockEntity, BinarySensorEntity):
         return super().available and self.lock_state.get("readOnly") is True
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Add reported access context when the profile receives change notifications."""
+        attributes = super().extra_state_attributes
+        event = self.lock_state.get("lastEvent")
+        if isinstance(event, dict):
+            attributes.update({"last_event_action": event["action"], "last_event_method": event["method"],
+                               "last_event_user": event["userName"], "last_event_received_at": event["receivedAt"]})
+        return attributes
+
+    @property
     def is_on(self) -> bool | None:
         """Home Assistant's lock binary sensor is on for unlocked, off for locked."""
         value = self.lock_state.get("state")

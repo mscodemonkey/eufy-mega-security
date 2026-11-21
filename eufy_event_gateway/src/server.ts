@@ -45,7 +45,7 @@ import { safeCameraModel } from "./domain/safe-camera-model.js";
 
 import type { GatewayConfig } from "./config.js";
 import { GatewayState } from "./domain/gateway-state.js";
-import type { GatewayEvent } from "./domain/types.js";
+import type { GatewayEvent, SmartLockState } from "./domain/types.js";
 import { createLogger, observeLogEvents } from "./logging.js";
 import { S100SirenTrialError, type S100SirenFailureStage } from "./provider/s100-siren-trial.js";
 import { parseModelControlTrial, closedAlarmStateResult, closedSpotlightStateResult } from "./provider/model-control-trials.js";
@@ -1906,10 +1906,16 @@ export class GatewayServer {
     }
   }
 
-  /** Keep read-only observations independent from E30's motor opt-in at every HTTP boundary. */
+  /** Select the opt-in that owns each observation without granting write authority. */
+  #lockVisible(lock: SmartLockState): boolean {
+    return lock.model === "T85L0" && lock.readOnly === true && lock.observationSource === "device_query"
+      ? this.config.experimentalE30Locks === true
+      : lock.readOnly === true ? this.config.experimentalModelControls === true : this.config.experimentalE30Locks === true;
+  }
+
+  /** Apply identical profile visibility to HTTP snapshots and SSE inventories. */
   #visibleLocks() {
-    return this.state.listLocks().filter(lock => lock.readOnly === true
-      ? this.config.experimentalModelControls : this.config.experimentalE30Locks);
+    return this.state.listLocks().filter(lock => this.#lockVisible(lock));
   }
 
   #events(request: IncomingMessage, response: ServerResponse): void {
@@ -1925,7 +1931,7 @@ export class GatewayServer {
       locks: this.#visibleLocks(),
     })}\n\n`);
     const listener = (event: GatewayEvent): void => {
-      if (event.type === "lock" && !(event.lock.readOnly === true ? this.config.experimentalModelControls : this.config.experimentalE30Locks)) return;
+      if (event.type === "lock" && !this.#lockVisible(event.lock)) return;
       const visible = event.type === "locks" ? { ...event, locks: this.#visibleLocks() } : event;
       response.write(`event: ${event.type}\ndata: ${JSON.stringify(visible)}\n\n`);
     };

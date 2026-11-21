@@ -225,6 +225,8 @@ entity:
       name: AA-reservebatteri
     battery:
       name: Batteri
+    keypad_lockout:
+      name: Seneste tastaturspærring
     battery_health:
       name: Batteri helbred
     battery_temperature:

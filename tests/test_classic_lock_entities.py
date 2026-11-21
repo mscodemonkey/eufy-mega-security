@@ -115,6 +115,87 @@ class ClassicLockEntitiesTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 project({**row, **change})
 
+    def test_client_admits_c33_only_as_a_status_only_device_query(self) -> None:
+        """The C33 reads state from the lock itself but never becomes a motor profile."""
+
+        project = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
+        row = {"serial": "fixture", "name": "Front Door", "model": "T85L0", "state": "unlocked", "available": True,
+               "batteryPercent": 31, "stateObservedAt": None, "readOnly": True, "observationSource": "device_query"}
+        result = project(row)
+        self.assertTrue(result["readOnly"])
+        self.assertEqual(result["observationSource"], "device_query")
+        for change in ({"readOnly": None}, {"observationSource": "device"}, {"observationSource": None},
+                       {"observationSource": "cloud_inventory"}, {"model": "T8520"}):
+            with self.assertRaises(ValueError):
+                project({**row, **change})
+
+    def test_c33_keeps_event_context_and_lockout_time_but_classic_rows_do_not(self) -> None:
+        """Only the notification-backed C33 profile carries access context and lockout receipt."""
+
+        from datetime import datetime
+        project = method("client.py", "GatewayClient", "_lock_state",
+                         {"GatewayClientError": ValueError, "datetime": datetime})
+        event = {"action": "unlocked", "method": "app", "userName": "Casey", "receivedAt": "2026-11-21T03:40:08Z"}
+        row = {"serial": "fixture", "name": "Front Door", "model": "T85L0", "state": "unlocked", "available": True,
+               "batteryPercent": 31, "stateObservedAt": None, "readOnly": True, "observationSource": "device_query",
+               "lastEvent": event, "keypadLockoutAt": "2026-11-21T03:39:01Z"}
+        result = project(row)
+        self.assertEqual(result["lastEvent"], event)
+        self.assertEqual(result["keypadLockoutAt"], "2026-11-21T03:39:01Z")
+        for stamp in ("not-a-date", "2026-11-21T03:39:01", 5, None):
+            self.assertIsNone(project({**row, "keypadLockoutAt": stamp})["keypadLockoutAt"])
+        self.assertNotIn("keypadLockoutAt", project({k: v for k, v in row.items() if k != "keypadLockoutAt"}))
+        classic = project({**row, "model": "T8520", "observationSource": "cloud_inventory"})
+        self.assertNotIn("lastEvent", classic)
+        self.assertNotIn("keypadLockoutAt", classic)
+
+    def test_reported_state_exposes_event_context_when_present(self) -> None:
+        """The read-only binary sensor adds last-event attributes only when the client kept one."""
+
+        class Base:
+            """Supply the shared observation attribute only."""
+
+            available = True
+
+            def __init__(self, coordinator, serial):
+                self.coordinator = coordinator
+                self.serial = serial
+
+            @property
+            def lock_state(self):
+                return self.coordinator.locks[self.serial]
+
+            @property
+            def extra_state_attributes(self):
+                return {"state_observed_at": None}
+
+        cls = load_class("binary_sensor.py", "EufyReportedLockState", {
+            "EufyLockEntity": Base, "BinarySensorEntity": object,
+            "BinarySensorDeviceClass": SimpleNamespace(LOCK="lock"),
+        })
+        event = {"action": "locked", "method": "automatic", "userName": None, "receivedAt": "2026-11-21T03:41:13Z"}
+        state = {"readOnly": True, "observationSource": "device_query", "lastEvent": event}
+        entity = cls(SimpleNamespace(locks={"fixture": state}), "fixture")
+        self.assertEqual(entity.extra_state_attributes, {
+            "state_observed_at": None, "last_event_action": "locked", "last_event_method": "automatic",
+            "last_event_user": None, "last_event_received_at": event["receivedAt"]})
+        del state["lastEvent"]
+        self.assertEqual(entity.extra_state_attributes, {"state_observed_at": None})
+
+    def test_keypad_lockout_sensor_reports_receipt_time_only(self) -> None:
+        """A missing or malformed receipt is unknown, never a current lockout claim."""
+
+        from datetime import datetime, timezone
+        cls = load_class("lock.py", "EufyLockKeypadLockout", {
+            "EufyLockEntity": type("Base", (), {}), "SensorEntity": type("Sensor", (), {}), "datetime": datetime,
+            "SensorDeviceClass": SimpleNamespace(TIMESTAMP="timestamp"),
+        })
+        entity = object.__new__(cls)
+        for raw, expected in (("2026-11-21T03:39:01Z", datetime(2026, 11, 21, 3, 39, 1, tzinfo=timezone.utc)),
+                              (None, None), ("bad", None)):
+            type(entity).lock_state = property(lambda self, raw=raw: {} if raw is None else {"keypadLockoutAt": raw})
+            self.assertEqual(entity.native_value, expected)
+
     async def test_client_rejects_read_only_observation_as_motor_confirmation(self) -> None:
         """Even an incorrectly successful gateway reply cannot confirm lock actuation."""
 

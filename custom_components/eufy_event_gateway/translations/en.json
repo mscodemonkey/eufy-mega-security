@@ -319,6 +319,9 @@
       "battery": {
         "name": "Battery"
       },
+      "keypad_lockout": {
+        "name": "Last keypad lockout"
+      },
       "battery_health": {
         "name": "Battery health"
       },

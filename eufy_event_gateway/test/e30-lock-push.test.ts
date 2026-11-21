@@ -33,7 +33,7 @@ function hint(sentAt = Date.now(), eventType = 257, userName?: string): MegaPush
 }
 
 /** Create an opted-in registry whose only network action is a fake read. */
-async function fixture(context: TestContext) {
+async function fixture(context: TestContext, row: Record<string, unknown> = inventory()) {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
   let queries = 0, actuations = 0, rawState = 4, allowed = true, fail = false;
   let held = false, finish: (() => void) | undefined;
@@ -48,7 +48,7 @@ async function fixture(context: TestContext) {
       return { rawState: observed, batteryPercent: 75 };
     }, actuate: async () => { actuations++; throw Error("Actuation forbidden"); }, close: () => {} }) });
   context.after(() => provider.close());
-  provider.inventory([inventory()], true);
+  provider.inventory([row as never], true);
   await settle();
   assert.equal(queries, 1);
   return { provider, queries: () => queries, actuations: () => actuations,
@@ -285,4 +285,40 @@ test("E30 event snapshots are isolated and retire with their binding", async con
   const changedMember = { ...inventory().member, short_user_id: "0002" };
   f.provider.inventory([{ ...inventory(), member: changedMember }]);
   assert.equal(f.provider.list()[0]?.lastEvent, undefined);
+});
+
+test("C33 wrong-try lockout is recorded as message context without a state query", async context => {
+  const f = await fixture(context, { ...inventory(), device_model: "T85L0", device_type: 201 });
+  assert.equal(f.provider.list()[0]?.keypadLockoutAt, null);
+  context.mock.timers.tick(11_000);
+  const receivedAt = new Date().toISOString();
+  f.state(3);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 515)), true);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 515)), false);
+  context.mock.timers.tick(20_000); await settle();
+  const state = f.provider.list()[0]!;
+  assert.equal(f.queries(), 1);
+  assert.equal(state.keypadLockoutAt, receivedAt);
+  assert.equal(state.state, "locked");
+  assert.equal(state.lastEvent, undefined);
+  assert.equal(f.actuations(), 0);
+});
+
+test("C33 lock and unlock pushes still schedule an independent query", async context => {
+  const f = await fixture(context, { ...inventory(), device_model: "T85L0", device_type: 201 });
+  context.mock.timers.tick(11_000);
+  f.state(3);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 261, "Casey")), true);
+  context.mock.timers.tick(1); await settle();
+  assert.equal(f.queries(), 2);
+  assert.equal(f.provider.list()[0]?.state, "unlocked");
+  assert.deepEqual(f.provider.list()[0]?.lastEvent?.method, "app");
+  assert.equal(f.provider.list()[0]?.keypadLockoutAt, null);
+});
+
+test("E30 has no lockout profile, so 515 stays an ignored alarm", async context => {
+  const f = await fixture(context);
+  assert.equal("keypadLockoutAt" in f.provider.list()[0]!, false);
+  assert.equal(f.provider.acceptPushHint(hint(Date.now(), 515)), false);
+  assert.equal("keypadLockoutAt" in f.provider.list()[0]!, false);
 });

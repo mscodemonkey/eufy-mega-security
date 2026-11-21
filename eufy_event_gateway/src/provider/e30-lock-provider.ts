@@ -11,7 +11,7 @@ import type { MegaPushEvent } from "../mega/push.js";
 import { maskSmartLockState, isE30LockSettingChange, type E30LockSettingChange, type SmartLockSettings, type SmartLockState, type SmartLockEvent } from "../domain/types.js";
 import { createLogger } from "../logging.js";
 import { bounded, E30MqttSession, E30_STATUS_QUERY_TIMEOUT_MS } from "./e30-lock-mqtt.js";
-import { E30LockError, validateE30Identity, type E30LockIdentity, type E30MqttCredentials, type E30Observation, type E30SettingsObservation, type E30AudibleVolume, type E30NotificationSetting, parseE30NotificationMode } from "./e30-lock-protocol.js";
+import { E30LockError, validateE30Identity, type E30LockIdentity, type E30LockModel, type E30MqttCredentials, type E30Observation, type E30SettingsObservation, type E30AudibleVolume, type E30NotificationSetting, parseE30NotificationMode } from "./e30-lock-protocol.js";
 
 const logger = createLogger("e30-lock");
 
@@ -36,6 +36,42 @@ const LOCK_CHANGE_EVENTS = new Map<number, Readonly<Pick<SmartLockEvent, "action
   [270, { action: "unlocked", method: "nfc" }],
   [271, { action: "locked", method: "nfc" }],
 ]);
+
+/**
+ * Direct Wi-Fi locks sharing the E30 MQTT status query. Model differences stay
+ * in this table: write authority, extra raw states that mean locked, and an
+ * optional wrong-try lockout notification recorded as message context.
+ */
+interface E30FamilyProfile {
+  readonly deviceType: number;
+  readonly writes: boolean;
+  readonly name: string;
+  readonly lockedStates?: readonly number[];
+  readonly lockoutEvent?: number;
+}
+
+const E30_FAMILY: ReadonlyMap<string, E30FamilyProfile> = new Map([
+  ["T85F1", { deviceType: 206, writes: true, name: "Smart Lock E30" }],
+
+  // C33: no confirmed write contract. Raw 9 is privacy mode (outside handle
+  // disengaged); push 515 is sent once when wrong-try protection locks the keypad.
+  ["T85L0", { deviceType: 201, writes: false, name: "Lever Smart Lock C33", lockedStates: [9], lockoutEvent: 515 }],
+]);
+
+function e30Profile(identity: E30LockIdentity): E30FamilyProfile {
+  return E30_FAMILY.get(identity.model ?? "T85F1")!;
+}
+
+/** Exact model and type admission, without inspecting route or membership. */
+function e30FamilyModel(row: MegaDevice): E30LockModel | null {
+  const profile = E30_FAMILY.get(row.device_model ?? "");
+  return profile && row.device_type === profile.deviceType ? row.device_model as E30LockModel : null;
+}
+
+/** Status-only identities never receive motor, settings or notification writes. */
+function e30Writable(identity: E30LockIdentity): boolean {
+  return e30Profile(identity).writes;
+}
 
 const PUSH_HINT_MAX_AGE_MS = 60_000;
 const PUSH_HINT_FUTURE_SKEW_MS = 5_000;
@@ -125,7 +161,7 @@ export class E30LockProvider {
     const parents = new Map<string, string>();
     for (const row of devices) {
       const identity = e30InventoryIdentity(row, this.options.accountName);
-      if (row.device_model === "T85F1" && row.device_type === 206 && !identity) {
+      if (e30FamilyModel(row) && !identity) {
         const member = row.member as Record<string, unknown> | undefined;
         logger.info("e30_lock_admission", `admitted=false serial_length=${row.device_sn.length} owner_present=${typeof member?.admin_user_id === "string"} short_id_present=${typeof member?.short_user_id === "string"} name_present=${Boolean(this.options.accountName || member?.nick_name)} self_parent=${!row.parent_sn || row.parent_sn === row.device_sn} self_station=${!row.station_sn || row.station_sn === row.device_sn}`);
       }
@@ -150,8 +186,8 @@ export class E30LockProvider {
 
       // Operations pin this object until its binding changes, not until the next inventory receipt.
       if (!this.#identities.has(serial)) this.#identities.set(serial, identity);
-      if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: "T85F1",
-        state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
+      if (!this.#states.has(serial)) this.#states.set(serial, { serial, name: identity.name, model: identity.model ?? "T85F1",
+        ...statusOnly(identity), ...(e30Profile(identity).lockoutEvent ? { keypadLockoutAt: null } : {}), state: "unknown", available: false, batteryPercent: null, stateObservedAt: null });
       const { stationSerial: _previousParent, ...state } = this.#states.get(serial)!;
       const parent = parents.get(serial);
       this.#states.set(serial, { ...state, firmware: firmware.get(serial) ?? null,
@@ -187,11 +223,17 @@ export class E30LockProvider {
     const identity = this.#identities.get(event.cameraSerial), sentAt = event.transportSentAtMilliseconds;
     const now = Date.now(), age = typeof sentAt === "number" ? now - sentAt : NaN;
     const change = event.eventType === null ? undefined : LOCK_CHANGE_EVENTS.get(event.eventType);
+    const lockout = identity !== undefined && event.eventType !== null && e30Profile(identity).lockoutEvent === event.eventType;
     if (this.#closed || !this.#inventoryConfirmed || !identity || event.stationSerial !== identity.serial
-      || !change || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
+      || (!change && !lockout) || !Number.isSafeInteger(sentAt) || !Number.isFinite(age)
       || age < -PUSH_HINT_FUTURE_SKEW_MS || age > PUSH_HINT_MAX_AGE_MS
       || sentAt! <= (this.#lastPushSentAt.get(identity.serial) ?? 0)) return false;
     this.#lastPushSentAt.set(identity.serial, sentAt!);
+    if (!change) {
+      this.#states.set(identity.serial, { ...this.#states.get(identity.serial)!, keypadLockoutAt: new Date(now).toISOString() });
+      this.#emit();
+      return true;
+    }
     const name = typeof event.personName === "string" ? event.personName.trim() : "";
     const userName = !["manual", "automatic", "keypad"].includes(change.method)
       && name.length > 0 && name.length <= 100 && !/[\x00-\x1f\x7f-\x9f]/u.test(name) ? name : null;
@@ -281,7 +323,7 @@ export class E30LockProvider {
 
   async #operate(serial: string, desired?: boolean | E30LockSettingChange, externalSignal?: AbortSignal, onDispatch?: () => void): Promise<SmartLockState> {
     const identity = this.#identities.get(serial);
-    if (!identity || this.#closed || !this.#inventoryConfirmed) throw new E30LockError("unavailable");
+    if (!identity || this.#closed || !this.#inventoryConfirmed || (desired !== undefined && !e30Writable(identity))) throw new E30LockError("unavailable");
     if (this.#operations.size) throw new E30LockError("busy");
     const throttle = desired === undefined ? this.#lastRefresh : this.#lastWrite;
     if (Date.now() - (throttle.get(serial) ?? 0) < READ_THROTTLE_MS) throw new E30LockError("rate_limited");
@@ -323,7 +365,7 @@ export class E30LockProvider {
       const before = await read(session.query(), E30_STATUS_QUERY_TIMEOUT_MS); check();
       let state = this.#observe(identity, before);
       if (desired === undefined) {
-        await this.#refreshSettings(identity, session, signal, check);
+        if (e30Writable(identity)) await this.#refreshSettings(identity, session, signal, check);
         return maskSmartLockState(this.#states.get(serial)!);
       }
       if (typeof desired === "object") {
@@ -482,8 +524,10 @@ export class E30LockProvider {
 
   #observe(identity: E30LockIdentity, observation: E30Observation): SmartLockState {
     const codes = this.#stateCodes;
-    const state: SmartLockState = { ...this.#states.get(identity.serial), serial: identity.serial, name: identity.name, model: "T85F1",
-      state: codes && observation.rawState === codes.locked ? "locked"
+    const state: SmartLockState = { ...this.#states.get(identity.serial), serial: identity.serial, name: identity.name,
+      model: identity.model ?? "T85F1", ...statusOnly(identity),
+      state: codes && (observation.rawState === codes.locked
+        || e30Profile(identity).lockedStates?.includes(observation.rawState)) ? "locked"
         : codes && observation.rawState === codes.unlocked ? "unlocked" : "unknown",
       available: true, batteryPercent: observation.batteryPercent, stateObservedAt: new Date().toISOString() };
     if (this.#rawStates.get(identity.serial) !== observation.rawState) {
@@ -514,14 +558,20 @@ export class E30LockProvider {
 
 /** Project an exact standalone route and minimal private membership from untrusted inventory. */
 export function e30InventoryIdentity(row: MegaDevice, accountName?: string): E30LockIdentity | null {
-  if (row.device_model !== "T85F1" || row.device_type !== 206 || typeof row.device_sn !== "string"
+  const model = e30FamilyModel(row);
+  if (!model || typeof row.device_sn !== "string"
     || (row.parent_sn && row.parent_sn !== row.device_sn) || (row.station_sn && row.station_sn !== row.device_sn)) return null;
   const member = row.member as Record<string, unknown> | undefined;
   if (!member) return null;
-  const identity: E30LockIdentity = { serial: row.device_sn, name: row.device_name ?? "Smart Lock E30",
+  const identity: E30LockIdentity = { serial: row.device_sn, name: row.device_name ?? E30_FAMILY.get(model)!.name,
     adminUserId: typeof member.admin_user_id === "string" ? member.admin_user_id : "",
     shortUserId: typeof member.short_user_id === "string" ? member.short_user_id : "",
     userName: accountName || (typeof member.nick_name === "string" ? member.nick_name : ""),
-    administrator: member.member_type === 1 || member.member_type === 2 };
+    administrator: member.member_type === 1 || member.member_type === 2, ...(model !== "T85F1" ? { model } : {}) };
   try { validateE30Identity(identity, false); return identity; } catch { return null; }
+}
+
+/** Mark a status-only profile so HTTP and Home Assistant never offer motor controls. */
+function statusOnly(identity: E30LockIdentity): Pick<SmartLockState, "readOnly" | "observationSource"> {
+  return e30Writable(identity) ? {} : { readOnly: true, observationSource: "device_query" };
 }

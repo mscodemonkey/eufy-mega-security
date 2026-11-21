@@ -83,7 +83,7 @@ class EufyLockEntity(CoordinatorEntity[EufyGatewayCoordinator]):
         """Expose the observation time, never protocol or account fields."""
         attributes = {"state_observed_at": self.lock_state.get("stateObservedAt")}
         if self.lock_state.get("readOnly") is True:
-            attributes["observation_source"] = "cloud_inventory"
+            attributes["observation_source"] = self.lock_state.get("observationSource")
         return attributes
 
 
@@ -164,6 +164,36 @@ class EufyLockBattery(EufyLockEntity, SensorEntity):
         """Preserve zero and reject malformed or absent battery values."""
         value = self.lock_state.get("batteryPercent")
         return value if type(value) is int and 0 <= value <= 100 else None
+
+
+class EufyLockKeypadLockout(EufyLockEntity, SensorEntity):
+    """Expose when the lock last reported a wrong-try keypad lockout.
+
+    The value is the notification receipt time. It is independent of lock
+    state freshness and never implies the lockout is still in effect.
+    """
+
+    _attr_translation_key = "keypad_lockout"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:lock-alert"
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Assign a stable lockout entity identifier."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_lock_keypad_lockout"
+
+    @property
+    def available(self) -> bool:
+        """Follow gateway and inventory presence, not lock-query freshness."""
+        return CoordinatorEntity.available.fget(self) and self.serial in self.coordinator.locks
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the last lockout receipt time, or unknown if none since the gateway started."""
+        try:
+            return datetime.fromisoformat(self.lock_state["keypadLockoutAt"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return None
 
 
 class EufyLockSettingEntity(EufyLockEntity):

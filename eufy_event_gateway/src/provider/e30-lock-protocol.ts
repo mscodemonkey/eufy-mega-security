@@ -18,7 +18,13 @@ export interface E30LockIdentity {
   readonly shortUserId: string;
   readonly userName: string;
   readonly administrator: boolean;
+
+  /** Exact admitted model, selecting the MQTT topic. Absent means the original E30 T85F1. */
+  readonly model?: E30LockModel;
 }
+
+/** Direct Wi-Fi locks sharing the E30 MQTT status protocol. Only T85F1 has write authority. */
+export type E30LockModel = "T85F1" | "T85L0";
 
 /** Transient credentials, never persisted or projected into public lock state. */
 export interface E30MqttCredentials {

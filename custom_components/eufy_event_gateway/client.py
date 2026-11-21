@@ -227,7 +227,7 @@ class GatewayClient:
     def _lock_state(value: Any) -> dict[str, Any]:
         """Project only normalized public facts, rejecting ambiguous command results."""
         if (not isinstance(value, dict) or not isinstance(value.get("serial"), str)
-                or value.get("model") not in ("T85F1", "T8520", "T8520J11", "T8520S")
+                or value.get("model") not in ("T85F1", "T8520", "T8520J11", "T8520S", "T85L0")
                 or value.get("state") not in ("locked", "unlocked", "unknown")
                 or not isinstance(value.get("available"), bool)):
             raise GatewayClientError("Gateway returned invalid lock state")
@@ -241,7 +241,9 @@ class GatewayClient:
             version = value["firmware"]
             state["firmware"] = version.strip() if isinstance(version, str) and len(version) <= 100 and version.strip() else None
         if value["model"] != "T85F1":
-            if value.get("readOnly") is not True or value.get("observationSource") != "cloud_inventory":
+            source = value.get("observationSource")
+            expected_source = "device_query" if value["model"] == "T85L0" else "cloud_inventory"
+            if value.get("readOnly") is not True or source != expected_source:
                 raise GatewayClientError("Gateway returned an invalid read-only lock profile")
             battery = state["batteryPercent"]
             if battery is not None and (type(battery) is not int or not 0 <= battery <= 100):
@@ -249,9 +251,10 @@ class GatewayClient:
             if state["stateObservedAt"] is not None and not isinstance(state["stateObservedAt"], str):
                 raise GatewayClientError("Gateway returned an invalid lock observation time")
             state["readOnly"] = True
-            state["observationSource"] = "cloud_inventory"
-            return state
-        if value.get("readOnly") is not None or value.get("observationSource") is not None:
+            state["observationSource"] = source
+            if source == "cloud_inventory":
+                return state
+        elif value.get("readOnly") is not None or value.get("observationSource") is not None:
             raise GatewayClientError("Gateway returned an invalid E30 lock profile")
         event = value.get("lastEvent")
         if (isinstance(event, dict) and set(event) == {"action", "method", "userName", "receivedAt"}
@@ -271,6 +274,15 @@ class GatewayClient:
                 state["lastEvent"] = {"action": event["action"], "method": event["method"],
                                       "userName": None if event["method"] in ("manual", "automatic", "keypad") else name,
                                       "receivedAt": stamp}
+        if state.get("readOnly"):
+            if "keypadLockoutAt" in value:
+                stamp = value["keypadLockoutAt"]
+                try:
+                    valid_time = datetime.fromisoformat(stamp.replace("Z", "+00:00")).tzinfo is not None
+                except (TypeError, ValueError, AttributeError):
+                    valid_time = False
+                state["keypadLockoutAt"] = stamp if valid_time else None
+            return state
         settings = value.get("settings")
         if isinstance(settings, dict):
             booleans = ("autoLock", "notifications", "lockedNotifications", "unlockedNotifications")
