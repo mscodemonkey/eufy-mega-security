@@ -37,6 +37,17 @@ share a model code, such as `t8200-standard` and `t8200-variant-6`. Use a stable
 product slug when no model code is confirmed. Source-specific identifiers do
 not belong in filenames or IDs.
 
+## Event exposure profiles
+
+An admitted camera can explicitly select an implemented event profile under
+`integration.event_profile`. The existing profile ID
+`motion-person-pet-vehicle-sound` selects those five event entities when the
+runtime has resolved the camera's direct connection. The generator binds the
+profile to the first model in `models` and the primary numeric `device_type`.
+Aliases, alternate numeric types and attached or unresolved connections do
+not inherit it. Use this only for reviewed event exposure. Actual event delivery
+still needs evidence in the appropriate `capabilities.events` connection.
+
 ## Capability groups
 
 - `readable` contains values the integration can read but cannot change.

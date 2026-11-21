@@ -13,6 +13,7 @@ import type { CoreCapabilityEntry } from "./device-capability-core.js";
 import { DOORBELL_CAPABILITY_CORE } from "./doorbell-capability-core.js";
 import { HOMEBASE_CAPABILITY_CORE, HOMEBASE_DEVICE_TYPES } from "./homebase-capability-core.js";
 import { ENTRY_SENSOR_HEALTH_CAPABILITY_CORE, SENSOR_CAPABILITY_CORE, SENSOR_DEVICE_TYPES } from "./sensor-capability-core.js";
+import { GENERATED_CAMERA_EVENT_PROFILES, type CameraEventProfileId } from "./devices/generated-catalogue.js";
 import { isT8442Camera } from "./t8442-profile.js";
 import { CARE_MONITOR_CAPABILITY_ROWS, isCareBabyMonitor } from "./care-monitor.js";
 
@@ -56,6 +57,10 @@ export function isSupportedCameraType(device: { readonly category: string | null
   return device.deviceType !== 95 || catalogueIntegrationStatus(device.model, device.deviceType) === "ready_to_test";
 }
 
+const CAMERA_EVENT_PROFILES: Readonly<Record<CameraEventProfileId, readonly DetectionKind[]>> = {
+  "motion-person-pet-vehicle-sound": ["motion", "person", "pet", "vehicle", "sound"],
+};
+
 /**
  * Limit detection entities to the reviewed model and route profiles.
  *
@@ -79,7 +84,9 @@ export function cameraDetectionKinds(
   if ((model === "T8410C" || model === "T8410C21") && device.deviceType === 31) {
     return ["motion", "person", "pet", "crying", "sound"];
   }
-  if (model === "T86P2" && device.deviceType === 111) return ["motion", "person", "pet", "vehicle", "sound"];
+  const binding = GENERATED_CAMERA_EVENT_PROFILES.find((entry) =>
+    entry.model === model && entry.deviceType === device.deviceType && entry.connection === "direct");
+  if (binding && isSupportedCameraType(device)) return [...CAMERA_EVENT_PROFILES[binding.profile]];
   if ((model === "T8224" && device.deviceType === 96)
     || (model === "T8422" && device.deviceType === 37)
     || (model === "T8404" && device.deviceType === 314)
