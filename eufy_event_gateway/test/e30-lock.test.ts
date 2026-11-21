@@ -16,6 +16,7 @@ import { e30MqttClientId } from "../src/provider/e30-lock-protocol.js";
 import { buildE30NotificationCommand, parseE30NotificationMode, e30MqttEnvelope, type E30NotificationSetting } from "../src/provider/e30-lock-protocol.js";
 import { e30BrokerTlsOptions, E30MqttSession, e30SubscriptionOutcome, isPublicE30BrokerAddress } from "../src/provider/e30-lock-mqtt.js";
 import { E30LockProvider, e30InventoryIdentity } from "../src/provider/e30-lock-provider.js";
+import type { MegaDevice } from "../src/mega/types.js";
 import { loadConfig } from "../src/config.js";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { GatewayServer } from "../src/server.js";
@@ -1124,4 +1125,42 @@ test("E30 unchanged inventory preserves an in-flight status query", async contex
     assert.equal((await query).state, "unlocked");
     assert.equal(provider.list()[0]?.firmware, "fixture-firmware");
   } finally { provider.close(); }
+});
+
+test("C33 T85L0/type 201 is a status-only profile with no settings reads or writes", async () => {
+  let queries = 0, writes = 0, settingsReads = 0;
+  const identities: E30LockIdentity[] = [];
+  const c33 = { ...inventoryRow(), device_model: "T85L0", device_type: 201 };
+  const provider = new E30LockProvider({ credentials: async () => credentials, changed: () => {},
+    session: (bound) => { identities.push(bound); return { open: async () => {},
+      query: async () => { queries++; return { rawState: 3, batteryPercent: 31 }; },
+      querySettings: async () => { settingsReads++; throw new E30LockError("unavailable"); },
+      actuate: async () => { writes++; }, close: () => {} }; } });
+  try {
+    provider.inventory([c33], true); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(queries, 1); assert.equal(identities[0]?.model, "T85L0");
+    const [state] = provider.list();
+    assert.equal(state?.model, "T85L0"); assert.equal(state?.state, "unlocked"); assert.equal(state?.batteryPercent, 31);
+    assert.equal(state?.readOnly, true); assert.equal(state?.observationSource, "device_query"); assert.equal(state?.settings, undefined);
+    for (const work of [provider.setLocked(identity.serial, true), provider.setSetting(identity.serial, { setting: "volume", value: 1 })]) {
+      await assert.rejects(work, (error: unknown) => error instanceof E30LockError && error.code === "unavailable");
+    }
+    assert.equal(writes, 0); assert.equal(settingsReads, 0); assert.equal(queries, 1);
+  } finally { provider.close(); }
+  for (const change of [{ device_type: 206 }, { device_model: "T85L1" }, { device_model: "T85L0111" }, { parent_sn: "station" }]) {
+    assert.equal(e30InventoryIdentity({ ...c33, ...change } as MegaDevice), null);
+  }
+  assert.equal(e30InventoryIdentity({ ...inventoryRow(), device_type: 201 } as MegaDevice), null);
+  assert.equal(e30InventoryIdentity(inventoryRow() as MegaDevice)?.model, undefined);
+});
+
+test("C33 privacy mode reads as locked while the E30 keeps unrecognised codes unknown", async () => {
+  for (const [row, expected] of [[{ ...inventoryRow(), device_model: "T85L0", device_type: 201 }, "locked"], [inventoryRow(), "unknown"]] as const) {
+    const provider = new E30LockProvider({ credentials: async () => credentials, changed: () => {},
+      session: () => ({ open: async () => {}, query: async () => ({ rawState: 9, batteryPercent: 31 }), actuate: async () => {}, close: () => {} }) });
+    try {
+      provider.inventory([row], true); await new Promise(resolve => setImmediate(resolve));
+      assert.equal(provider.list()[0]?.state, expected);
+    } finally { provider.close(); }
+  }
 });

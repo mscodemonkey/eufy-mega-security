@@ -34,7 +34,7 @@ from . import EufyGatewayConfigEntry
 from .const import DOMAIN, GUARD_MODES
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity, EufySecuritySensorEntity, EufyStationEntity
-from .lock import EufyLockBattery
+from .lock import EufyLockBattery, EufyLockKeypadLockout
 from .guard_mode_options import guard_mode_label, guard_mode_options
 
 
@@ -60,6 +60,10 @@ async def async_setup_entry(
         if lock_serials:
             known_locks.update(lock_serials)
             async_add_entities([EufyLockBattery(coordinator, serial) for serial in sorted(lock_serials)])
+            async_add_entities([
+                EufyLockKeypadLockout(coordinator, serial) for serial in sorted(lock_serials)
+                if "keypadLockoutAt" in coordinator.locks[serial]
+            ])
 
         signal_serials = {
             serial for serial, camera in coordinator.cameras.items()

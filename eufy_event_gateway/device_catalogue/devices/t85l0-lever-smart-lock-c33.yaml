@@ -13,8 +13,17 @@ models:
   - T85L0
   - T85L0111
 device_type: 201
+notes: "Status-only profile in the separate opt-in E30 provider. One standalone T85L0, type 201, firmware 1.0.8.3, US cloud route. No lock, unlock or settings writes. See README Experimental Smart Lock E30. Generic catalogue admission intentionally remains recognised."
 capabilities:
   readable:
+    lock_state:
+      read:
+        field: state
+      connections:
+        direct:
+          status: tested
+      source: README Experimental Smart Lock E30
+      notes: "E30 MQTT status query on the T85L0 topic. Raw 4 locked, 3 unlocked and 9 privacy mode (published as locked) confirmed against the physical lock. Raw 6 was seen once and remains unmapped."
     battery_level:
       connections:
         direct:
@@ -42,6 +51,7 @@ capabilities:
           status: declared
       read:
         parameter: 6000
+      notes: "Cloud inventory value stayed 4 through physical lock and unlock, so it is not used for state."
       values:
         "1": "1"
         "2": "2"

@@ -229,7 +229,7 @@ export class E30MqttSession {
     if (this.#publishing) throw new E30LockError("busy");
     const client = this.#check();
     const envelope = e30MqttEnvelope(this.identity, command, this.#credentials!.clientId);
-    const topic = `cmd/eufy_security/T85F1/${this.identity.serial}/req`;
+    const topic = `cmd/eufy_security/${this.#model()}/${this.identity.serial}/req`;
     this.#publishing = true;
     try { await bounded(new Promise<void>((resolve, reject) => {
       this.#check();
@@ -254,7 +254,9 @@ export class E30MqttSession {
     return buildE30Command(this.identity, action, unixTime, keyTime, ++this.#sequence);
   }
 
-  #replyTopic(): string { return `cmd/eufy_security/T85F1/${this.identity.serial}/res`; }
+  #replyTopic(): string { return `cmd/eufy_security/${this.#model()}/${this.identity.serial}/res`; }
+
+  #model(): string { return this.identity.model ?? "T85F1"; }
 
   #check(): MqttClient {
     this.#alive();

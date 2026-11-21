@@ -513,7 +513,7 @@ export interface SmartLockState {
   readonly stationSerial?: string;
 
   readonly name: string;
-  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S";
+  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S" | "T85L0";
 
   /** Lock-owned inventory metadata; it does not refresh the physical state observation. */
   readonly firmware?: string | null;
@@ -522,7 +522,7 @@ export interface SmartLockState {
   readonly readOnly?: true;
 
   /** Receipt of cached cloud facts must never be claimed as a physical device query. */
-  readonly observationSource?: "cloud_inventory";
+  readonly observationSource?: "cloud_inventory" | "device_query";
   readonly state: "locked" | "unlocked" | "unknown";
   readonly available: boolean;
   readonly batteryPercent: number | null;
@@ -531,6 +531,12 @@ export interface SmartLockState {
 
   /** Optional notification context, cleared on binding retirement and independent of query freshness. */
   readonly lastEvent?: SmartLockEvent;
+
+  /**
+   * Receipt time of the last wrong-try lockout notification, null until one
+   * arrives. Present only for profiles that report lockouts; not a lock state.
+   */
+  readonly keypadLockoutAt?: string | null;
 }
 
 /** Normalized state notifications consumed by the authenticated SSE connection. */
