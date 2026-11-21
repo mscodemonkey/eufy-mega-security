@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.276
+
+- Accept URL-safe notification data within the existing size limits. S120 motion notification delivery still needs a retest.
+- Keep the last media request gap and actual segment settings in Home Assistant's HLS cleanup diagnostics to help investigate freezes and slow starts.
+- Answer the device keepalive in the optional live trial for the original standalone T8420. Playback on the affected hardware still needs confirmation.
+- Clarify how Live Audio affects the C31's ten-second recording preview. Video, sound and seeking are confirmed on the standalone T817L.
+- Temporarily disable the experimental C35 camera switch while a change is pending. The gateway now requires a fresh reading from the same camera and channel before confirming it, even while another camera is connecting.
+- Explain why the S340 streaming quality control may be unavailable. On the optional HomeBase 3 trial, use the camera's current single-view or dual-view preference. Actual capture resolution still needs confirmation.
+- Recover a familiar name for a HomeBase recording when its person crop has a valid match in the HomeBase roster.
+- Document the confirmed 4G LTE Cam S330 discovery, motion and retained snapshots separately from its open live video and event-picture problems.
+- Include a privacy-safe failure reason when automatic HomeBase event-picture recovery cannot retrieve the matching thumbnail. Intermittent missed pictures remain under investigation.
+- Select the standalone LTE S330's existing event entities through the device catalogue. Diagnostics show whether the profile matched, the route differed or the connection could not be resolved.
+- Move inventory normalization and merge rules into a separate module while preserving existing refresh, entity and session behaviour.
+- Add worked catalogue-onboarding examples and repeatable synthetic scaling tests for device inventory and shared media sessions.
+
 ## 0.1.275
 
 - Extend the disabled-by-default C35 camera-enabled trial to exact owner-bound HomeBase 3 child routes, requiring a fresh reported baseline and single-write confirmation. Physical camera behaviour remains unconfirmed.
