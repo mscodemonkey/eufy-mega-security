@@ -7822,6 +7822,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         ...(camera.parentSerial ? { topology: camera.parentSerial !== camera.serial ? "attached" : "direct" } : {}),
       } : {};
       let picture: { data: Buffer } | null, recovered = false;
+
+      /** Retain only closed failure categories, never exception messages or returned history. */
+      const recoveryUnavailable = (error: unknown): void => {
+        const codes = ["unavailable", "invalid_request", "invalid_response", "cancelled", "timeout", "busy"];
+        const result = error instanceof EventNameHistoryError && codes.includes(error.code) ? error.code : "unknown";
+        logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}${!event.recording ? pushRecordingReferenceDiagnostic(event.recordingReferenceProblem, event.recordingReferenceShape) : ""} recovery_result=${result}`);
+      };
       const recover = async (): Promise<{ data: Buffer }> => {
         if (!event.recording) {
           throw new EventNameHistoryError("unavailable");
@@ -7837,15 +7844,15 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           || !this.config.experimentalHomeBaseEventImages) throw error;
         try {
           picture = await recover();
-        } catch {
-          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}${!event.recording ? pushRecordingReferenceDiagnostic(event.recordingReferenceProblem, event.recordingReferenceShape) : ""}`);
+        } catch (recoveryError) {
+          recoveryUnavailable(recoveryError);
           throw error;
         }
       }
       if (picture === null && owner?.historyEligible && this.config.experimentalHomeBaseEventImages) {
         try { picture = await recover(); }
-        catch {
-          logger.info("push_snapshot_recovery_unavailable", `The matching recording thumbnail could not be recovered reason=${!event.eventId ? "visit_identity_unavailable" : !event.recording ? "notification_reference_unavailable" : "matching_thumbnail_unavailable"}${!event.recording ? pushRecordingReferenceDiagnostic(event.recordingReferenceProblem, event.recordingReferenceShape) : ""}`);
+        catch (error) {
+          recoveryUnavailable(error);
           return;
         }
       }
