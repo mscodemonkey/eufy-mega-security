@@ -29,6 +29,11 @@ working integration behaviour is confirmed. Run `npm run catalogue:generate`
 after editing a record, then `npm run catalogue:check` before submitting the
 change. You can locate a device with `npm run catalogue:query -- T817L`.
 
+The [device onboarding examples](eufy_event_gateway/device_catalogue/README.md#adding-a-device)
+walk through a recognised identity and reuse of an existing event profile.
+Include the exact model, numeric type, connection, evidence status and the
+relevant fixture result when proposing admission.
+
 ## Local setup
 
 The gateway requires Node.js 24 or newer. Install its dependencies from the gateway directory:
