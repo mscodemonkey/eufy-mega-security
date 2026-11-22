@@ -179,6 +179,86 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
         other.close()
         self.assertNotIn("cleanup", other.diagnostic())
 
+    async def test_segment_wait_observes_readiness_and_preserves_results_after_cleanup(self):
+        """Retained timings separate waiting for segments from a later player delay."""
+        value = output()
+        value.sequences = []
+        ready = asyncio.Event()
+
+        async def recv():
+            await ready.wait()
+            return bool(value.sequences)
+
+        value.recv = recv
+        observer = MODULE.HlsViewActivity.install(value, lambda: False)
+        self.addCleanup(observer.close)
+        task = asyncio.create_task(value.recv())
+        await asyncio.sleep(0.02)
+        value.sequences = [0]
+        ready.set()
+        self.assertIs(await task, True)
+        value.sequences = [0, 1]
+        self.assertIs(await value.recv(), True)
+        result = observer.diagnostic()["segment_wait"]
+        self.assertEqual(result["calls"], 2)
+        self.assertEqual(result["completed"], 2)
+        self.assertGreaterEqual(result["max_seconds"], 0.01)
+        self.assertGreaterEqual(result["two_ready_observed_seconds"], result["first_ready_observed_seconds"])
+        value.cleanup()
+        self.assertIs(value.recv, recv)
+        self.assertEqual(observer.diagnostic()["segment_wait"], result)
+        self.assertEqual(value.cleaned, 1)
+
+    async def test_segment_wait_propagates_cancellation_and_failure_without_recording_errors(self):
+        """HA retains cancellation and failure ownership, including exception privacy."""
+        for failure in (asyncio.CancelledError(), RuntimeError("private source")):
+            value = output()
+
+            async def recv():
+                raise failure
+
+            value.recv = recv
+            observer = MODULE.HlsViewActivity.install(value, lambda: False)
+            try:
+                with self.assertRaises(type(failure)) as caught:
+                    await value.recv()
+                self.assertIs(caught.exception, failure)
+                result = observer.diagnostic()["segment_wait"]
+                self.assertEqual(result["completed"], 0)
+                self.assertEqual(result["cancelled"], int(isinstance(failure, asyncio.CancelledError)))
+                self.assertEqual(result["failed"], int(isinstance(failure, RuntimeError)))
+                self.assertIsNone(result["first_ready_observed_seconds"])
+                self.assertNotIn("private source", str(observer.diagnostic()))
+            finally:
+                observer.close()
+
+    async def test_empty_segment_wait_does_not_invent_readiness_or_touch_other_outputs(self):
+        """A false result and another output cannot supply this output's readiness."""
+        value = output()
+        other = output()
+
+        async def recv():
+            return False
+
+        value.recv = recv
+        other.recv = recv
+        observer = MODULE.HlsViewActivity.install(value, lambda: False)
+        try:
+            self.assertIs(await value.recv(), False)
+            self.assertIs(other.recv, recv)
+            result = observer.diagnostic()["segment_wait"]
+            self.assertIsNone(result["first_ready_observed_seconds"])
+            self.assertIsNone(result["two_ready_observed_seconds"])
+
+            async def replacement():
+                return True
+
+            value.recv = replacement
+            observer.close()
+            self.assertIs(value.recv, replacement)
+        finally:
+            observer.close()
+
 
 if __name__ == "__main__":
     unittest.main()
