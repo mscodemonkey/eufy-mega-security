@@ -1518,7 +1518,7 @@ test("routes a confirmed T8210 press code as a doorbell event", () => {
   assert.match(nonDoorbell, /handling=unhandled/);
 });
 
-test("separates T8214 style-3 detections from doorbell presses", () => {
+test("keeps the legacy detection split unless the exact T8214 ring contract applies", () => {
   assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, detectionEvidence: ["person"] }), "detection");
   assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, personName: "Known person" }), "detection");
   assert.equal(doorbellPushKind({ eventType: 3103, notificationStyle: 3, detectionEvidence: [] }), "press");
@@ -1529,7 +1529,7 @@ test("separates T8214 style-3 detections from doorbell presses", () => {
     eventType: 3103, messageType: 18, notificationStyle: 3,
     pictureUrl: null, alarmType: null, detectionEvidence: ["person"],
   }, { model: "T8214", category: "eufy_security", deviceType: 94 }, true, true);
-  assert.match(summary, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_detection/);
+  assert.match(summary, /event_type=3103 message_type=18 notification_style=3 handling=doorbell_press/);
 
   const pressSummary = safePushLogSummary({
     eventType: 3103, messageType: 18, notificationStyle: 3,
