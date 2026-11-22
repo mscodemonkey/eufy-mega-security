@@ -4788,6 +4788,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     let phase: keyof typeof elapsed = "queue", phaseAt = startedAt;
     let failurePhase: keyof typeof elapsed | "none" = "none";
     let confirmed = false, readbackAttempts = 0, connections = 0;
+    const readbackEvidence = { missingCamera: 0, missingValue: 0, differentValue: 0, bindingChanged: 0, unreconciled: 0 };
     const enterPhase = (next: keyof typeof elapsed): void => {
       const now = performance.now();
       elapsed[phase] += now - phaseAt;
@@ -4895,7 +4896,14 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           enterPhase("readback"); readbackAttempts++;
           const observed = await scope.wait(() => this.#refreshInventoryReads(true, false, "observed"));
           current();
+          const row = observed.find(item => item.serial === serial);
+          if (!row) readbackEvidence.missingCamera++;
+          else if (inventoryBindingChanged(device, row)) readbackEvidence.bindingChanged++;
+          else if (row.reads.motionDetectionEnabled === undefined) readbackEvidence.missingValue++;
+          else if (row.reads.motionDetectionEnabled !== enabled) readbackEvidence.differentValue++;
           const refreshed = this.#confirmedCameraInventoryRead(observed, device, peer, "motionDetectionEnabled", enabled);
+          if (!refreshed && row && !inventoryBindingChanged(device, row)
+            && row.reads.motionDetectionEnabled === enabled) readbackEvidence.unreconciled++;
           if (refreshed) {
             if (acknowledgementTimedOut) logger.warn("camera_motion_acknowledgement_missing", "Camera motion detection was confirmed by fresh inventory after its acknowledgement was unavailable");
             confirmed = true;
@@ -4917,7 +4925,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       logger.info("camera_motion_control_timings",
         `model=${safeLogModel(requested?.model ?? "unknown")} outcome=${confirmed ? "confirmed" : "failed"} failure_phase=${failurePhase}`
         + ` total_ms=${Math.round(performance.now() - startedAt)} ${Object.entries(elapsed).map(([name, value]) => `${name}_ms=${Math.round(value)}`).join(" ")}`
-        + ` connections=${connections} readback_attempts=${readbackAttempts}`);
+        + ` connections=${connections} readback_attempts=${readbackAttempts}`
+        + ` readback_missing_camera=${readbackEvidence.missingCamera} readback_missing_value=${readbackEvidence.missingValue}`
+        + ` readback_different_value=${readbackEvidence.differentValue} readback_binding_changed=${readbackEvidence.bindingChanged}`
+        + ` readback_unreconciled=${readbackEvidence.unreconciled}`);
       this.#motionAborters.delete(controller);
     });
 
