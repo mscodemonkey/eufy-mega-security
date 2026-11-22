@@ -813,9 +813,9 @@ export class LiveStreamManager extends EventEmitter {
       session.pendingClients.add(response);
       const startup = session.parameterSets.startup;
 
-      // Any other marked view is a retry from a client that lost the call. It will
-      // most likely be refused, so don't spend a conversion on its old picture.
-      if (profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg && (!view || mayTakeCall)) {
+      // Cached frames can outlive their source. Let the replacement source seed
+      // its own converter, and don't seed one for a marked view that lost the call.
+      if (session.source && profile === "compatible" && sourceCodec === "h265" && startup && !session.viewerFfmpeg && (!view || mayTakeCall)) {
         this.#startViewerTranscoder(serial, session, startup);
       }
     }
