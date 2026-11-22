@@ -19,6 +19,9 @@
       "shared_fixed": {
         "name": "Fast linse"
       },
+      "multiview": {
+        "name": "Multivisning"
+      },
       "shared_movable": {
         "name": "Bevægelig linse"
       },
@@ -306,6 +309,13 @@
           "both": "Begge",
           "wide": "Vidvinkel",
           "telephoto": "Telefoto"
+        }
+      },
+      "nvr_multiview_lens": {
+        "name": "Linse i multivisning",
+        "state": {
+          "fixed": "Fast",
+          "movable": "Bevægelig"
         }
       }
     },

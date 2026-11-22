@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -71,12 +72,16 @@ async def async_setup_entry(
     known_night_vision: set[str] = set()
     known_streaming_quality: set[str] = set()
     known_nvr_views: set[str] = set()
+    known_multiview_lenses: set[str] = set()
 
     def add_new() -> None:
         for serial, camera in coordinator.cameras.items():
             if camera.get("nvrViewOptions") and serial not in known_nvr_views:
                 known_nvr_views.add(serial)
                 async_add_entities([EufyNvrViewSelect(coordinator, serial)])
+            if camera.get("nvrMultiViewLensOptions") and serial not in known_multiview_lenses:
+                known_multiview_lenses.add(serial)
+                async_add_entities([EufyNvrMultiViewLensSelect(coordinator, serial)])
             if camera.get("autoNightVisionControlSupported") is not True:
                 continue
             obsolete_unique_id = f"{serial}_night_vision"
@@ -473,6 +478,51 @@ class EufyLockAutoLockDelaySelect(EufyLockSettingEntity, SelectEntity):
         if option not in self._attr_options:
             raise HomeAssistantError("Unsupported auto-lock delay")
         await self.async_set_setting(int(option))
+
+
+class EufyNvrMultiViewLensSelect(EufyGatewayEntity, SelectEntity):
+    """Own the HA choice of which lens a camera shows in its NVR's multi-view cell.
+
+    It is separate from Camera view, so the multi-view's cell never changes
+    under a viewer. The gateway refuses a change while the multi-view is open,
+    and holds the choice in memory until it restarts.
+    """
+
+    _attr_translation_key = "nvr_multiview_lens"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: EufyGatewayCoordinator, serial: str) -> None:
+        """Bind the choice to one camera that offers two lenses for the multi-view."""
+        EufyGatewayEntity.__init__(self, coordinator, serial)
+        SelectEntity.__init__(self)
+        self._attr_unique_id = f"{serial}_nvr_multiview_lens"
+
+    @property
+    def available(self) -> bool:
+        """Withdraw the choice when the multi-view or this camera's cell is absent."""
+        return super().available and bool(self.options)
+
+    @property
+    def options(self) -> list[str]:
+        """Offer only the gateway's exact two-lens choice."""
+        return ["fixed", "movable"] if self.camera.get("nvrMultiViewLensOptions") == ["Fixed", "Movable"] else []
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the chosen lens for the next multi-view call."""
+        selected = self.camera.get("nvrMultiViewLens")
+        return self.options[selected] if type(selected) is int and 0 <= selected < len(self.options) else None
+
+    async def async_select_option(self, option: str) -> None:
+        """Ask the gateway to change the choice, without optimism."""
+        if option not in self.options:
+            raise HomeAssistantError("Unavailable multi-view lens")
+        try:
+            camera = await self.coordinator.client.set_nvr_multiview_lens(self.serial, self.options.index(option))
+            self.coordinator.async_set_camera(camera)
+        except GatewayClientError as error:
+            raise HomeAssistantError(str(error)) from error
 
 
 class EufyNvrViewSelect(EufyGatewayEntity, SelectEntity):

@@ -19,6 +19,9 @@
       "shared_fixed": {
         "name": "Fixed lens"
       },
+      "multiview": {
+        "name": "Multi-view"
+      },
       "shared_movable": {
         "name": "Movable lens"
       },
@@ -306,6 +309,13 @@
           "both": "Both",
           "wide": "Wide",
           "telephoto": "Telephoto"
+        }
+      },
+      "nvr_multiview_lens": {
+        "name": "Multi-view lens",
+        "state": {
+          "fixed": "Fixed",
+          "movable": "Movable"
         }
       }
     },

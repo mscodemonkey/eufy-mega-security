@@ -222,7 +222,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse((ROOT / "camera.py").read_text())
         setup = next(n for n in tree.body if getattr(n, "name", None) == "async_setup_entry")
         listeners, added = [], []
-        coordinator = SimpleNamespace(cameras={"test": {"model": "T8E00"}},
+        coordinator = SimpleNamespace(cameras={"test": {"model": "T8E00"}}, stations={},
                                       async_add_listener=lambda fn: listeners.append(fn))
         entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator), options={}, async_on_unload=lambda fn: None)
         class Schema:

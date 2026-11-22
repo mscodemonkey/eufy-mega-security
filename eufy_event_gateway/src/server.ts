@@ -460,7 +460,11 @@ export class GatewayServer {
         && segments[3] === "general-rtc-prepare";
       if (generalTrial || generalPreparation) response.setHeader("Cache-Control", "no-store");
       if (segments[0] === "api" && this.config.apiToken) {
-        const streamAuthorized =
+        const multiViewAuthorized = request.method === "GET" && segments[1] === "stations"
+          && segments[3] === "live-multiview-native.annexb" && segments.length === 4
+          && url.searchParams.getAll(STREAM_TOKEN_QUERY).length === 1
+          && validateNativeStreamToken(segments[2]!, url.searchParams.get(STREAM_TOKEN_QUERY), this.config.apiToken);
+        const streamAuthorized = multiViewAuthorized ||
           request.method === "GET" &&
           segments[1] === "cameras" &&
           (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-main.h264" || segments[3] === "live-fixed.h264" || segments[3] === "live-movable.h264" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts"
@@ -1254,6 +1258,15 @@ export class GatewayServer {
         return await this.#cameraAudioRecording(request, segments[2]!, response);
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
+        && segments[3] === "nvr-multiview-lens") {
+        if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
+        if (!this.state.hasCamera(segments[2]!)) return json(response, 404, { error: "Camera not found" });
+        const body = await readClosedNvrBody(request);
+        if (Object.keys(body).length !== 1 || (body.lens !== 0 && body.lens !== 1)) throw new SyntaxError("Invalid multi-view lens");
+        if (!this.provider.setNvrMultiViewLens) throw new NvrLiveControlError("disabled");
+        return json(response, 200, this.state.registerCamera(await this.provider.setNvrMultiViewLens(segments[2]!, body.lens as number)));
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
         && ["nvr-live-control", "nvr-view"].includes(segments[3]!)) {
         if (!this.config.apiToken || !isBearerAuthorized(request.headers.authorization, this.config.apiToken)) return json(response, 401, { error: "Unauthorized" });
         return await this.#nvrLiveAction(request, segments[2]!, segments[3] === "nvr-view", response);
@@ -1343,6 +1356,18 @@ export class GatewayServer {
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments.length === 3) {
         return this.#stationJson(segments[2]!, response);
+      }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "stations" && segments[3] === "stream-token" && segments.length === 4) {
+        return await this.#multiViewStreamToken(request, segments[2]!, response);
+      }
+      if (request.method === "GET" && segments[0] === "api" && segments[1] === "stations" && segments[3] === "live-multiview-native.annexb" && segments.length === 4) {
+        const serial = segments[2]!;
+        if (!this.state.hasStation(serial)) return json(response, 404, { error: "HomeBase not found" });
+        if (this.state.getStation(serial).nvrMultiViewSupported !== true || !this.provider.nvrMultiViewAdmitted?.(serial)) {
+          return json(response, 409, { error: "The multi-view is unavailable" });
+        }
+        logger.info("camera_media_request", `model=${safeCameraModel(this.state.getStation(serial).model)} operation=multiview_native`);
+        return await this.streams.addNativeMultiViewClient(serial, response);
       }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "stations" && segments.length === 4) {
         return await this.#stationCommand(request, segments[2]!, segments[3]!, response);
@@ -1867,6 +1892,26 @@ export class GatewayServer {
     return json(response, 200, { path, expiresAt, ...(profile ? { profile } : {}), ...(lens ? { lens } : {}) });
   }
 
+  /**
+   * Sign one NVR's multi-view route. The multi-view is native only: the NVR
+   * stitches one H.265 picture, which is passed through unconverted.
+   */
+  async #multiViewStreamToken(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    let profile: ViewerProfile | undefined, audio: "on" | "off" | undefined, lens: SharedLens | "main" | undefined;
+    try { ({ profile, audio, lens } = await readStreamProfile(request)); }
+    catch { return json(response, 400, { error: "Invalid stream profile request" }); }
+    if (profile !== "native" || audio === "on" || lens) return json(response, 400, { error: "The multi-view is native video only" });
+    if (!this.state.hasStation(serial)) return json(response, 404, { error: "HomeBase not found" });
+    if (this.state.getStation(serial).nvrMultiViewSupported !== true || !this.provider.nvrMultiViewAdmitted?.(serial)) {
+      return json(response, 409, { error: "The multi-view is unavailable" });
+    }
+    const expiresAt = Math.floor(Date.now() / 1_000) + STREAM_TOKEN_LIFETIME_SECONDS;
+    const token = this.config.apiToken ? createNativeStreamToken(serial, expiresAt, this.config.apiToken) : null;
+    const path = `/api/stations/${encodeURIComponent(serial)}/live-multiview-native.annexb${token ? `?${STREAM_TOKEN_QUERY}=${encodeURIComponent(token)}` : ""}`;
+    response.setHeader("Cache-Control", "no-store");
+    return json(response, 200, { path, expiresAt, profile: "native", view: "multiview" });
+  }
+
   async #captureSnapshot(serial: string, response: ServerResponse): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
@@ -2051,7 +2096,7 @@ async function readClosedNvrBody(request: IncomingMessage): Promise<Record<strin
   const value: unknown = JSON.parse(text);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Expected an object");
   const keys = [...text.matchAll(/"(?:\\.|[^"\\])*"\s*:/g)].map(match => JSON.parse(match[0].slice(0, match[0].lastIndexOf(":"))));
-  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view"].includes(key))) throw new SyntaxError("Invalid keys");
+  if (new Set(keys).size !== keys.length || keys.some(key => !["kind", "direction", "level", "view", "lens"].includes(key))) throw new SyntaxError("Invalid keys");
   return value as Record<string, unknown>;
 }
 

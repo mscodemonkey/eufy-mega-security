@@ -218,6 +218,13 @@ export interface CameraState {
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
 
+  /**
+   * The lenses this camera can show in its NVR's multi-view cell, when it has a
+   * choice, and the one chosen. Independent of Camera view.
+   */
+  readonly nvrMultiViewLensOptions?: readonly string[];
+  readonly nvrMultiViewLens?: number | null;
+
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;
 
@@ -405,6 +412,12 @@ export interface HomeBaseState {
 
   /** Mark these separate volume controls as an unconfirmed HomeBase 2 trial. */
   readonly volumeControlsExperimental?: boolean;
+
+  /**
+   * Whether this NVR offers its multi-view camera: one stitched native picture
+   * of the cameras it can carry. Absent from gateways and stations without one.
+   */
+  readonly nvrMultiViewSupported?: boolean;
 
   /** Whether the station may receive confirmed guard-mode writes. */
   readonly guardModeControlSupported: boolean;
@@ -634,6 +647,13 @@ export interface CameraIdentity {
   readonly nvrOpticalZoomControlSupported?: boolean;
   readonly nvrViewOptions?: readonly string[];
   readonly nvrSelectedView?: number | null;
+
+  /**
+   * The lenses this camera can show in its NVR's multi-view cell, when it has a
+   * choice, and the one chosen. Independent of Camera view.
+   */
+  readonly nvrMultiViewLensOptions?: readonly string[];
+  readonly nvrMultiViewLens?: number | null;
 
   /** Exact-profile NVR controls are admitted, whether or not the profile offers a view choice. */
   readonly nvrLiveControlsSupported?: boolean;

@@ -104,6 +104,12 @@ export interface CameraProvider {
   /** Open one lens on its own native NVR call for a pane, within the NVR's call budget. */
   openNvrLensCall?(serial: string, lens: SharedLens): Promise<NvrLensCall>;
 
+  /** Read whether one T8N00 offers its multi-view camera, without opening media. */
+  nvrMultiViewAdmitted?(stationSerial: string): boolean;
+
+  /** Open one T8N00's stitched multi-view on its own native call, within its call budget. */
+  openNvrMultiViewCall?(stationSerial: string): Promise<NvrLensCall>;
+
 
   /**
    * Inject media checks and guarded retirement while the manager retains source and lease ownership.
@@ -113,6 +119,9 @@ export interface CameraProvider {
 
   /** Change the idle camera's next-stream view, with no device write. */
   setNvrView?(serial: string, view: number): Promise<CameraIdentity>;
+
+  /** Choose the lens a camera shows in its NVR's multi-view cell, while the multi-view is closed, with no device write. */
+  setNvrMultiViewLens?(serial: string, lens: number): Promise<CameraIdentity>;
 
   /** Submit one finite experimental movement, requiring physical confirmation. */
   performNvrLiveControl?(serial: string, request: NvrLiveControl, signal?: AbortSignal): Promise<NvrLiveControlResult>;

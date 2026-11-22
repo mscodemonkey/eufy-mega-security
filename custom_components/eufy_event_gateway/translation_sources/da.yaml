@@ -12,6 +12,8 @@ entity:
       name: Primært objektiv (Eksperimentel)
     shared_fixed:
       name: Fast linse
+    multiview:
+      name: Multivisning
     shared_movable:
       name: Bevægelig linse
     event_image:
@@ -218,6 +220,11 @@ entity:
         both: Begge
         wide: Vidvinkel
         telephoto: Telefoto
+    nvr_multiview_lens:
+      name: Linse i multivisning
+      state:
+        fixed: Fast
+        movable: Bevægelig
   sensor:
     last_recognized_person:
       name: Sidste genkendte person

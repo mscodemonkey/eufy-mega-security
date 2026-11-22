@@ -125,7 +125,8 @@ viewers close, and Home Assistant's retry places fresh calls.
 
 With the mode observer connected, the T8N00 answered two more calls and left a
 third unanswered (one NVR, twice). The gateway counts its own calls to each NVR
-and keeps them to three: the two panes and one ordinary view. Parked calls count
+and keeps them to three: the two panes and one ordinary view, or the
+[multi-view camera](#multi-view-camera) in place of one of them. Parked calls count
 too, but a new pane or view takes a parked call first, so a parked call never
 causes a refusal. The observer never adds a fourth, because the first pane or
 view takes its call or closes it, and it stays off until every call, parked ones
@@ -182,6 +183,94 @@ other runs, release of the call on every exit, the observer handover and the
 compatible fallback. If a pane closes unexpectedly, share only
 `native_lens_view_closed`, `nvr_lens_call_failed` or `shared_lens_view_closed`,
 keeping images and video private.
+
+## Multi-view camera
+
+Each owned T8N00/type300 has one optional **Multi-view** camera entity on the
+NVR's own HA device. It starts disabled in Home Assistant, and needs the existing
+experimental NVR live option and normal NVR live view, as the NVR's cameras do.
+It is offered only when the NVR has at least two cameras it can stitch.
+
+The NVR draws the multi-view itself: one live start with `stitch_mode` 3 (a 3x3
+grid, eufy's `Std_3X3`), a list of channels, and a picture size of 3840x2160, so
+each cell is 1280x720. The NVR sends that as one H.265 stream on one call,
+which the gateway passes through unconverted, as it does a pane's lens. 3840x2160
+is the largest 3x3 within H.265 level 5.1, the level browsers, phones and TV
+boxes generally decode. On one T8N00 it ran at 20 fps in real time, about
+0.76 Mbit/s, using 33 of the NVR's 240 units of encoder capacity.
+
+The cells hold the NVR's cameras that play natively in Home Assistant, in
+channel order, up to nine. Any further cameras are left out. An S4 shows the lens
+chosen in its own **Multi-view lens** select, Fixed by default. That choice is
+separate from Camera view, so the cell never changes when Camera view does. Like
+Camera view, it changes only while the multi-view is closed, and it returns to
+Fixed when the gateway restarts. The select starts disabled in Home Assistant. A
+cell with no camera stays blank, and a camera that is switched off
+shows the NVR's own "turned off" card. The T8214 (E340) doorbell is left out: it
+plays on its own as both its lenses stacked, but in every grid and stack tried
+it left its cell on "Please wait…", with either lens. The cells are fixed when
+the call starts, so a camera added, removed or rebound ends the call, and Home
+Assistant's retry opens it with the new set.
+
+The multi-view's call is admitted, shared and closed as a pane's call is. It
+counts as one call in the budget above. It never gives its call to a pane or
+view and never takes one, apart from the mode observer's listening call or a
+parked call. Viewers share the one call and join from its current keyframe. When
+its last viewer has gone, the call is stopped after the idle grace, and parked if
+another gateway call on that NVR is in use, so closing the multi-view leaves the
+panes and views playing, and the other way round. A request past the budget is
+refused before a call is placed (`nvr_multiview_call_refused reason=call_budget`):
+with both panes and the multi-view open, a further ordinary view is refused.
+The gateway's log lines are `nvr_multiview_call_completed`,
+`nvr_multiview_call_failed`, `nvr_multiview_call_observer_used`,
+`nvr_multiview_call_idle_used` and `native_multiview_view_closed`, each with the
+number of cells and no camera names.
+
+With the integration's H.264 compatibility option on, the multi-view camera is
+unavailable. A 3840x2160 H.264 conversion is beyond the hardware the app
+typically runs on, and the multi-view never falls back to a converted route.
+
+The layouts were measured on one NVR S4 and its firmware only, so the multi-view
+fails safe elsewhere. If an NVR answers the call but refuses or never
+acknowledges the stitched start, the gateway logs
+`nvr_multiview_unavailable reason=stitched_start_refused` once, with the NVR's
+model and firmware, and withdraws that NVR's multi-view: the camera shows
+unavailable and no further stitched call is placed until the gateway restarts or
+the NVR's firmware changes. An unanswered or failed call is not a refusal; it
+fails like any view, and Home Assistant retries.
+
+**Recording.** The multi-view sends the NVR only the camera list request, the
+start and the stop, as a pane does: no recording or camera setting is read or
+written, and the NVR's own recording is independent of live calls. In the
+gateway it never takes or yields a call, so a view recording a gateway clip
+keeps its call, and the multi-view is refused instead when the budget is full.
+Use Home Assistant's `camera.record` to record the multi-view; the integration's
+`record_clip` and `capture_snapshot` actions are refused on it, because both
+work on one camera's own source.
+
+The gateway route is `/api/stations/<NVR>/live-multiview-native.annexb`, signed
+like the native camera routes; `POST /api/stations/<NVR>/stream-token` with
+`{"profile":"native"}` returns it. The station's `nvrMultiViewSupported` field
+says whether the multi-view is offered.
+
+The stitched start is general: the layout, the cells with their lenses, and the
+size are parameters, so other layouts (a 2x2 grid, or two or three pictures
+stacked) use the same path. Only the 3x3 multi-view camera uses it so far.
+
+Who owns what: the gateway's provider owns the NVR call and its admission,
+parking and hang-up; one gateway view per NVR owns the call's output and its
+HTTP viewers, joining each at a keyframe and closing a slow viewer alone; Home
+Assistant's stream worker owns its own HLS output for the entity. Each closes on
+its own idle rule: HA stops its stream after its idle timeout, the gateway view
+closes its call after the gateway's idle grace, and the provider parks or hangs
+up the call as above.
+
+Local tests cover the stitched start for several layouts, the cell rule and the
+doorbell, the lens choice and its independence from Camera view, admission within
+the budget beside both panes and a view, refusal past it with no call placed, a
+recording view kept untouched, viewers sharing one call, parking and the hang-up
+hold with the panes, the fail-safe on a refused stitched start, the compatibility
+behaviour, and release of the call on every exit.
 
 ## Retry while an unused call is closing
 
