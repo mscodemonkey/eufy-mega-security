@@ -142,11 +142,21 @@ capabilities:
     live_view:
       connections:
         T8010:
-          status: declared
+          status: tested
+          tested_on: 2026-11-22
+          tested_by: feedthedogs
+          notes: Plain T8113 model code, type 8. Live view through Home Assistant and HomeKit.
         T8030:
           status: tested
           tested_on: 2026-09-20
           tested_by: mscodemonkey
+    live_audio:
+      connections:
+        T8010:
+          status: tested
+          tested_on: 2026-11-22
+          tested_by: feedthedogs
+          notes: Plain T8113 model code, type 8. Clear ADTS AAC-LC, 16 kHz mono, carried as live-native.ts with the Live audio switch on and heard in Apple Home through the HA HomeKit bridge. Receive only, no talkback.
     snapshot:
       connections:
         T8010:

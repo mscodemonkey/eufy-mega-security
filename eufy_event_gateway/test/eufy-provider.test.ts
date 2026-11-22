@@ -425,7 +425,7 @@ test("T8210 audio requires the exact type and a ready owned HB3 child route", ()
   assert.equal(supportsCameraLiveAudio(device, { ...route, peer: { ...peer, model: "T8010" } }, true), false);
 });
 
-test("T8113-Z audio requires the exact type and a ready owned HB2 or HB3 child route", () => {
+test("T8113-Z retains HB2/HB3 audio and plain T8113 requires its tested HB2 route", () => {
   const device = { serial: "fixture-doorbell", model: "T8113-Z", deviceType: 8, channel: 2, adminUserId: "fixture-admin" };
   const peer = { serial: "fixture-station", model: "T8030" } as MegaInventoryDevice;
   const route = { homeBaseAttached: true, peer };
@@ -433,7 +433,12 @@ test("T8113-Z audio requires the exact type and a ready owned HB2 or HB3 child r
   assert.equal(supportsCameraLiveAudio(device, { ...route, peer: { ...peer, model: "T8010" } }, true), true);
   assert.equal(supportsCameraLiveAudio(device, route, false), false);
   assert.equal(supportsCameraLiveAudio(device, null, true), false);
-  for (const changed of [{ model: "T8113-ZX" }, { model: "T8113" }, { deviceType: 7 }, { deviceType: 94 }, { deviceType: null }, { channel: -1 }, { channel: 1.5 }, { channel: null }, { adminUserId: null }]) {
+  assert.equal(supportsCameraLiveAudio({ ...device, model: "T8113" }, route, true), false);
+  assert.equal(supportsCameraLiveAudio({ ...device, model: "T8113" }, { ...route, peer: { ...peer, model: "T8010", deviceType: 0 } }, true), true);
+  for (const deviceType of [null, 18]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, model: "T8113" }, { ...route, peer: { ...peer, model: "T8010", deviceType } }, true), false);
+  }
+  for (const changed of [{ model: "T8113-ZX" }, { model: "T8113-V" }, { model: "T8113-Z", deviceType: 7 }, { model: "T8113", deviceType: 94 }, { deviceType: 7 }, { deviceType: 94 }, { deviceType: null }, { channel: -1 }, { channel: 1.5 }, { channel: null }, { adminUserId: null }]) {
     assert.equal(supportsCameraLiveAudio({ ...device, ...changed }, route, true), false);
   }
   assert.equal(supportsCameraLiveAudio(device, { ...route, homeBaseAttached: false }, true), false);
@@ -2149,5 +2154,17 @@ test("attached E30 motion does not accept ambiguous native branch or state rows"
     const params = [{ param_type: 1011, param_value: 1 }, { param_type: 6271, param_value: 0 },
       { param_type: duplicate, param_value: 0 }];
     assert.equal(safeInventoryReads(params, 88, "T8171", false).motionDetectionEnabled, undefined);
+  }
+});
+
+
+test("plain T8113 audio requires a valid selected HB2 child and ready transport", () => {
+  const device = { serial: "fixture-camera", model: "T8113", deviceType: 8, channel: 2, adminUserId: "fixture-admin" };
+  const peer = { serial: "fixture-station", model: "T8010", deviceType: 0 } as MegaInventoryDevice;
+  const route = { homeBaseAttached: true, peer };
+  assert.equal(supportsCameraLiveAudio(device, route, true), true);
+  assert.equal(supportsCameraLiveAudio(device, route, false), false);
+  for (const change of [{ channel: 32 }, { channel: -1 }, { channel: 1.5 }, { channel: null }, { adminUserId: null }, { deviceType: 7 }]) {
+    assert.equal(supportsCameraLiveAudio({ ...device, ...change }, route, true), false);
   }
 });

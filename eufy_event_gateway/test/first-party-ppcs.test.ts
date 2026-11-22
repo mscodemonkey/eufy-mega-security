@@ -953,9 +953,11 @@ test("T8210 audio isolates the observed HB3 child and excludes other routes", ()
   }
 });
 
-test("T8113-Z audio isolates the observed HB2/HB3 child and excludes other routes", () => {
+test("T8113-Z audio retains HB2/HB3 while plain T8113 requires the tested HB2 route", () => {
   assert.equal(acceptsSoloCamAudio("T8113-Z", true, 2, 2, "media", 8, "T8030"), true);
   assert.equal(acceptsSoloCamAudio("T8113-Z", true, 2, 2, "media", 8, "T8010"), true);
+  assert.equal(acceptsSoloCamAudio("T8113", true, 2, 2, "media", 8, "T8030"), false);
+  assert.equal(acceptsSoloCamAudio("T8113", true, 2, 2, "media", 8, "T8010", 0), true);
   for (const [model, attached, requested, received, purpose, type, parent] of [
     ["T8113-Z", true, 2, 1, "media", 8, "T8030"],
     ["T8113-Z", true, 2, 2, "control", 8, "T8030"],
@@ -966,8 +968,13 @@ test("T8113-Z audio isolates the observed HB2/HB3 child and excludes other route
     ["T8113-Z", true, 2, 2, "media", 94, "T8030"],
     ["T8113-Z", false, 0, 0, "media", 8, "T8030"],
     ["T8113-ZX", true, 2, 2, "media", 8, "T8030"],
-    ["T8113", true, 2, 2, "media", 8, "T8030"],
+    ["T8113-V", true, 2, 2, "media", 8, "T8030"],
     ["T8113-Z", true, 2, 2, "media", 7, "T8030"],
+    ["T8113", true, 2, 1, "media", 8, "T8010"],
+    ["T8113", true, 2, 2, "control", 8, "T8010"],
+    ["T8113", true, 2, 2, "media", 7, "T8010"],
+    ["T8113", true, 2, 2, "media", 8, "T8020"],
+    ["T8113", false, 0, 0, "media", 8, "T8010"],
   ] as const) {
     assert.equal(acceptsSoloCamAudio(model, attached, requested, received, purpose, type, parent), false);
   }
@@ -1103,4 +1110,18 @@ test("C31 siren authenticates its timed JSON start and both ordered binary stop 
   assert.throws(() => buildStandaloneC31SirenStartPayload("", key, 1, 1791619200000), /administrator/);
   assert.throws(() => buildStandaloneC31SirenStartPayload("fixture-admin", key, 1, 0), /epoch/);
   assert.throws(() => buildStandaloneC31SirenStopPayload(0 as 1201, key, 1), /stop command/);
+});
+
+
+test("plain T8113 receive audio refuses an unqualified parent type or child channel", () => {
+  for (const type of [undefined, 18]) assert.equal(acceptsSoloCamAudio("T8113", true, 2, 2, "media", 8, "T8010", type), false);
+  assert.equal(acceptsSoloCamAudio("T8113", true, 32, 32, "media", 8, "T8010", 0), false);
+});
+
+
+test("plain T8113 HB2 audio still isolates the selected media consumer", () => {
+  for (const [attached, requested, received, purpose, type] of [
+    [true, 2, 1, "media", 8], [true, 2, 2, "control", 8], [true, 2, 2, "passive", 8],
+    [true, 2, 2, "media", 7], [false, 0, 0, "media", 8],
+  ] as const) assert.equal(acceptsSoloCamAudio("T8113", attached, requested, received, purpose, type, "T8010", 0), false);
 });
