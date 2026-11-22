@@ -1863,7 +1863,7 @@ export class FirstPartyPpcsSession {
   #t8420ClearSent = false;
   readonly #originalHomeBase: boolean;
   #originalSeal: OriginalHomeBaseSeal | null = null;
-  #originalStart: { readonly command: 1003 | 1350; readonly payload: Buffer; retries: number } | null = null;
+  #originalStart: { readonly command: 1003 | 1350; readonly payload: Buffer; retries: number; settled: boolean } | null = null;
   #originalNegotiating = false;
   #originalLookupTimer: ReturnType<typeof setTimeout> | null = null;
   #originalRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -4445,18 +4445,27 @@ export class FirstPartyPpcsSession {
     const start = this.#originalStart;
     const seal = this.#originalSeal;
     if (!start || !seal || type !== 0 || header[14] !== 1 || command !== start.command) return false;
+    if (header[12] !== this.#options.channel || start.settled) return true;
     const result = decodeOriginalHomeBaseResult(payload, signCode, seal);
     if (result === null) return true;
     this.stats.mediaStartResult = result;
+
+    // An application result supersedes datagram retry tracking. A terminal
+    // result also retires a previously queued busy retry before video arrives.
+    this.#mediaStart.mediaReceived();
+    if (result !== ORIGINAL_HOMEBASE_BUSY) {
+      start.settled = true;
+      if (this.#originalRetryTimer) clearTimeout(this.#originalRetryTimer);
+      this.#originalRetryTimer = null;
+    }
 
     // v4 repeats this one explicit busy result with a fresh sequence. Spacing the bounded
     // attempts gives another camera's stream time to stop.
     if (result === ORIGINAL_HOMEBASE_BUSY && !this.#originalRetryTimer
       && start.retries < ORIGINAL_HOMEBASE_START_RETRIES && this.stats.videoFrames === 0) {
-      this.#mediaStart.mediaReceived();
       this.#originalRetryTimer = setTimeout(() => {
         this.#originalRetryTimer = null;
-        if (this.#closed || this.stats.videoFrames > 0) return;
+        if (this.#closed || start.settled || this.stats.videoFrames > 0) return;
         start.retries++;
         this.stats.mediaStartAttempts++;
         this.#sendCommand(start.command, start.payload, true);
@@ -4493,7 +4502,7 @@ export class FirstPartyPpcsSession {
     const body = buildOriginalHomeBaseStart(command, this.#options.channel, this.#options.accountId ?? "",
       publicModulus(this.#rsa.publicKey), seal);
     this.#originalSeal = seal;
-    this.#originalStart = { command, payload: body, retries: 0 };
+    this.#originalStart = { command, payload: body, retries: 0, settled: false };
     this.stats.originalHomeBaseKey = seal.reason;
     this.stats.mediaStartAttempts++;
     this.stats.mediaStartProtocols.push(command === 1003 ? "original-1003-clear"

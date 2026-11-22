@@ -3647,7 +3647,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
-          ...(peer.model === "T8001" || peer.model === "T8002" ? {
+          ...(peer.model === "T8001" ? {
             accountId: peer.adminUserId ?? device.adminUserId,
             stationFirmware: peer.firmware,
             resolveOriginalHomeBaseKeys: (cipherId: number) => this.#resolveOriginalHomeBaseKeys(cipherId, peer),

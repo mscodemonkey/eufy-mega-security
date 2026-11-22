@@ -1,11 +1,12 @@
 /**
- * Defines the live-video protocol of the original HomeBase (T8001) and HomeBase E (T8002).
+ * Defines the live-video protocol of the original HomeBase (T8001).
  *
  * These stations predate the ECC/AES-GCM media start used by later HomeBases. They can
  * return gateway info in the clear and take an integer or JSON start protected with
  * AES-128-ECB at most. The wire shapes here follow eufy-security-client 4.1.1-1 (MIT),
  * the library used by homebridge-eufy-security 4.7.2. Live video is reported working on
- * one T8001. T8002 and the individual key and firmware branches are not hardware-confirmed.
+ * one T8001. Individual key and firmware branches are not hardware-confirmed.
+ * T8002 retains its existing route until that separate model is qualified.
  * The PPCS session owns sockets, sequencing, timers and cleanup. This
  * module only selects the route, derives the command key and builds command bodies.
  */
@@ -30,13 +31,13 @@ export interface OriginalHomeBaseRoute {
 }
 
 /**
- * Admit only T8111 media through a T8001 or T8002.
+ * Admit only T8111 media through a T8001.
  * T8010 shares numeric type 0, so the station model is required. Control sessions are
  * excluded because none of their writes have been qualified on this protocol.
  */
 export function usesOriginalHomeBaseLive(route: OriginalHomeBaseRoute): boolean {
   return route.homeBaseAttached === true
-    && (route.stationModel === "T8001" || route.stationModel === "T8002") && route.stationDeviceType === 0
+    && route.stationModel === "T8001" && route.stationDeviceType === 0
     && route.cameraModel === "T8111" && route.cameraDeviceType === 1
     && Number.isInteger(route.channel) && route.channel >= 0 && route.channel < 255
     && (route.purpose === undefined || route.purpose === "media");

@@ -1,5 +1,5 @@
 /**
- * Exercises T8001 and T8002 live video through the real provider and PPCS session.
+ * Exercises T8001 live video through the real provider and PPCS session.
  * Synthetic inventory, keys and UDP replies own every byte. No account, camera or network is used.
  * The clear 133-byte gateway reply reproduces the shape reported from a T8001.
  */
@@ -124,7 +124,7 @@ async function fixture(context: TestContext, options: Options = {}) {
   return { provider, incoming, commands, lookups, output, packets, answerLatest };
 }
 
-for (const station of ["T8001", "T8002"]) {
+for (const station of ["T8001"]) {
   for (const sign of [0, 1]) {
     test(`${station} starts and stops with RSA after gateway sign ${sign}`, async (context) => {
       const f = await fixture(context, { station, sign });
@@ -183,8 +183,8 @@ for (const firmware of ["2.0.9.6", null]) {
   });
 }
 
-test("T8010 keeps ignoring a clear gateway reply and never uses the older lookup", async (context) => {
-  const f = await fixture(context, { station: "T8010" });
+for (const station of ["T8010", "T8002"]) test(`${station} keeps its existing route without the older lookup`, async (context) => {
+  const f = await fixture(context, { station });
   assert.equal(f.commands(1350).length + f.commands(1003).length, 0);
   assert.deepEqual(f.lookups, []);
 });
@@ -292,7 +292,7 @@ test("the firmware boundary matches v4", () => {
 test("only T8111 media through an exact original HomeBase is admitted", () => {
   const exact = { cameraModel: "T8111", cameraDeviceType: 1, stationModel: "T8001", stationDeviceType: 0, channel: 0, homeBaseAttached: true };
   assert.equal(usesOriginalHomeBaseLive(exact), true);
-  for (const change of [{ stationModel: "T8010" }, { stationModel: "T8030" }, { stationDeviceType: 18 }, { cameraModel: "T8113-Z" },
+  for (const change of [{ stationModel: "T8002" }, { stationModel: "T8010" }, { stationModel: "T8030" }, { stationDeviceType: 18 }, { cameraModel: "T8113-Z" },
     { cameraDeviceType: 8 }, { homeBaseAttached: false }, { purpose: "control" as const }, { channel: 255 }]) {
     assert.equal(usesOriginalHomeBaseLive({ ...exact, ...change }), false);
   }
@@ -390,4 +390,32 @@ test("four cameras share one queued cloud key lookup", async (context) => {
   assert.deepEqual(f.lookups, ["omitted"]);
   release();
   await settle();
+});
+
+
+for (const result of [0, -104]) {
+  test(`terminal result ${result} retires a queued busy retry`, async (context) => {
+    const f = await fixture(context);
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const busy = Buffer.alloc(4); busy.writeInt32LE(503);
+    f.incoming(1350, busy, 0, 0, 1);
+    const terminal = Buffer.alloc(4); terminal.writeInt32LE(result);
+    f.incoming(1350, terminal, 0, 0, 1);
+    f.incoming(1350, busy, 0, 0, 1);
+    context.mock.timers.tick(1000);
+    const starts = f.commands(1350).length;
+    context.mock.timers.reset();
+    assert.equal(starts, 1);
+  });
+}
+
+test("a foreign child result cannot schedule a busy retry", async (context) => {
+  const f = await fixture(context);
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const busy = Buffer.alloc(4); busy.writeInt32LE(503);
+  f.incoming(1350, busy, 0, 0, 1, CHANNEL + 1);
+  context.mock.timers.tick(1000);
+  const starts = f.commands(1350).length;
+  context.mock.timers.reset();
+  assert.equal(starts, 1);
 });
