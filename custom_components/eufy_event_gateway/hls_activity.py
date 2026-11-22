@@ -1,9 +1,9 @@
 """Observe one HA HLS output and retire its unused worker through HA's timer.
 
 HA owns HTTP handlers, worker shutdown and recording/preload decisions. This
-observer owns only a stream-local quiet timer. The gateway keeps protecting the
-upstream HTTP response until HA actually closes it, including during cleanup.
-The diagnostics boundary can read the last content-free cleanup observation.
+observer owns a stream-local quiet timer and content-free segment-wait counters.
+The gateway protects the upstream HTTP response until HA actually closes it,
+including during cleanup. Diagnostics consume retained cleanup and wait timings.
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ class HlsViewActivity:
     Segment and part requests reset HA's public idle timer. The local wrapper
     also schedules an earlier quiet check, allowing HA to close its retained
     worker after the person stops watching. Unsupported contracts keep HA's
-    original timeout. No global handler or gateway admission flag is modified.
+    original timeout. Public segment waits retain their original outcomes and
+    cancellation while the observer records aggregate timings. Global handlers
+    and gateway admission remain owned by HA and the gateway respectively.
     """
 
     def __init__(self, output: Any, allowed: Callable[[], bool], quiet_seconds: float) -> None:
