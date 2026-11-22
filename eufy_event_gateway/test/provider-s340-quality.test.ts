@@ -121,7 +121,9 @@ for (const [options, reason] of [
     assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlReason, reason);
     const admission = f.logs.filter(line => line.includes("event=camera_s340_quality_admission"));
     assert.equal(admission.length, 1);
-    assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}\n`));
+    const modeEvidence = reason === "live_mode_unconfirmed"
+      ? ` mode_evidence=${"conflictingMode" in options ? "duplicate" : "mode" in options && options.mode === null ? "missing" : "invalid_string"}` : "";
+    assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}${modeEvidence}\n`));
     assert.ok(!admission[0]!.includes("synthetic-owner") && !admission[0]!.includes("synthetic-child"));
     const readsBefore = f.reads();
     await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
@@ -167,5 +169,13 @@ test("a pending S340 view start blocks the preference write", async context => {
   const starting = f.provider.startStream("synthetic-child");
   await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3), /Wait for other/);
   await starting;
+  assert.equal(f.writes(), 0);
+});
+
+
+test("S340 startup logs a closed mode-evidence category without enabling a missing-mode control", async context => {
+  const f = await fixture(context, { mode: null });
+  assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlSupported, false);
+  assert.ok(f.logs.some(line => line.includes("camera_s340_quality_admission model=T8170 reason=live_mode_unconfirmed mode_evidence=missing")));
   assert.equal(f.writes(), 0);
 });

@@ -10,7 +10,7 @@ import { readCameraSetting } from "./camera-settings.js";
 import { e21Readings, type E21Readings } from "./e21-profile.js";
 import { entrySensorHealth } from "./entry-sensor-health.js";
 import { homeBaseInventoryAlarmVolume } from "./homebase-inventory-volume.js";
-import { readS340LiveQuality, readS340LiveViewMode } from "./s340-live-quality.js";
+import { readS340LiveModeEvidence, readS340LiveQuality, readS340LiveViewMode, type S340LiveModeEvidence } from "./s340-live-quality.js";
 
 /** Normalized Mega inventory row used to decide camera support and routing. */
 export interface MegaInventoryDevice {
@@ -54,6 +54,9 @@ export interface MegaInventoryDevice {
   readonly guardModeNames?: Readonly<Record<number, string>>;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
+
+  /** Content-free reason for withholding the mode, separate from reported device state. */
+  readonly s340LiveModeEvidence?: S340LiveModeEvidence;
 }
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
@@ -87,6 +90,7 @@ export interface MegaInventoryReads {
 
   /** View mode reported by the S340 independently of its quality preference. */
   readonly s340LiveViewMode?: 0 | 12;
+
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
   readonly solarConnected24h?: boolean;
@@ -167,6 +171,10 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     const parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
     const channel = integer(value.device_channel) ?? integer(value.channel);
     const reads = safeInventoryReads(value.params, deviceType, model, (!parentSerial || parentSerial === serial) && channel === 0);
+    const s340ModeEvidence = model === "T8170" && deviceType === 48 && parentSerial && parentSerial !== serial
+      ? readS340LiveModeEvidence(Array.isArray(value.params) ? value.params.flatMap(row => (
+        isRecord(row) && integer(row.param_type) === 6243 ? [{ param_type: 6243, param_value: row.param_value }] : []
+      )) : []) : undefined;
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -204,6 +212,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       })() : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
+      ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
   const adminUserIds = new Map(

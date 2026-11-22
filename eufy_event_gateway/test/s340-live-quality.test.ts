@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 import test from "node:test";
-import { isS340LiveQualityRoute, readS340LiveQuality, s340LiveQualityValue } from "../src/provider/s340-live-quality.js";
+import { isS340LiveQualityRoute, readS340LiveModeEvidence, readS340LiveQuality, s340LiveQualityValue } from "../src/provider/s340-live-quality.js";
+import { parseMegaInventory } from "../src/provider/inventory-normalization.js";
 import { cameraSettingProfile, readCameraSetting } from "../src/provider/camera-settings.js";
 import { safeInventoryReads } from "../src/provider/eufy-provider.js";
 import { buildReviewedCameraSettingPayload } from "../src/stream/first-party-ppcs.js";
@@ -86,4 +87,26 @@ test("attached S340 quality ignores legacy telemetry while standalone reads reta
   assert.equal(safeInventoryReads(rows, 48, "T8170", true).streamingQualityTier, 2);
   assert.equal(safeInventoryReads(rows, 48, "T8170", true).s340LiveViewMode, undefined);
   assert.equal(safeInventoryReads(rows.slice(0, 1), 48, "T8170", false).streamingQualityTier, undefined);
+});
+
+
+test("mode evidence distinguishes missing, duplicate and invalid reports without exposing values", () => {
+  for (const [rows, evidence] of [
+    [[], "missing"], [params("3"), "single"], [params("3", 12), "dual"],
+    [[...params("3"), { param_type: 6243, param_value: "0" }], "duplicate"],
+    [params("3", 99), "invalid_number"], [params("3", "private text"), "invalid_string"],
+    [params("3", { secret: "private text" }), "invalid_shape"],
+  ] as const) {
+    assert.equal(readS340LiveModeEvidence(rows), evidence);
+    const device = { device_sn: "synthetic-child", device_model: "T8170", device_type: 48,
+      parent_sn: "synthetic-parent", device_channel: 1, params: rows };
+    const [attached] = parseMegaInventory({ devices: [device] });
+    assert.equal(attached?.s340LiveModeEvidence, evidence);
+    assert.ok(!("s340LiveModeEvidence" in attached!.reads));
+    for (const change of [{ parent_sn: "", device_channel: 0 }, { device_model: "T8171", device_type: 88 }]) {
+      assert.equal(parseMegaInventory({ devices: [{ ...device, ...change }] })[0]?.s340LiveModeEvidence, undefined);
+    }
+    assert.ok(!JSON.stringify(attached).includes("private text"));
+  }
+  assert.equal(readS340LiveQuality([{ param_type: 2730, param_value: { cur_mode: 12, mode_1: { quality: 3 } } }]), undefined);
 });

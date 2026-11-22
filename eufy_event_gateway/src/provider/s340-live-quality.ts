@@ -31,18 +31,29 @@ export function isS340LiveQualityRoute(route: ModelControlRoute): boolean {
 
 type InventoryParameter = { readonly param_type: number; readonly param_value: unknown };
 
+/** Closed, content-free explanation of the exact view-mode parameter admission. */
+export type S340LiveModeEvidence = "missing" | "duplicate" | "single" | "dual"
+  | "invalid_number" | "invalid_string" | "invalid_shape";
+
+/** Classify one inventory snapshot without retaining arbitrary values or inferring a mode. */
+export function readS340LiveModeEvidence(params: readonly InventoryParameter[]): S340LiveModeEvidence {
+  const modes = params.filter(row => row.param_type === 6243);
+  if (modes.length === 0) return "missing";
+  if (modes.length > 1) return "duplicate";
+  const value = modes[0]!.param_value;
+  if (value === 0 || value === "0") return "single";
+  if (value === 12 || value === "12") return "dual";
+  return typeof value === "number" ? "invalid_number" : typeof value === "string" ? "invalid_string" : "invalid_shape";
+}
+
 /**
  * Read the S340 view mode independently of the reported quality preference.
  * The model reports 0 for single view and 12 for dual view. Duplicate rows
  * leave the mode unknown, even if their values agree.
  */
 export function readS340LiveViewMode(params: readonly InventoryParameter[]): 0 | 12 | undefined {
-  const modes = params.filter(row => row.param_type === 6243);
-  if (modes.length !== 1) return undefined;
-  const value = modes[0]!.param_value;
-  if (value === 0 || value === "0") return 0;
-  if (value === 12 || value === "12") return 12;
-  return undefined;
+  const evidence = readS340LiveModeEvidence(params);
+  return evidence === "single" ? 0 : evidence === "dual" ? 12 : undefined;
 }
 
 /**
