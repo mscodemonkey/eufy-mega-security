@@ -331,6 +331,19 @@ through EMS, and the exact thumbnail read has been exercised on local hardware.
 Automatic recovery on a fresh naturally failing notification still needs that
 separate confirmation. This option does not add HomeBase 2 or doorbell support.
 
+## S340 missing quality selector
+
+For an S340 (T8170, type 48) attached to HomeBase 3, select the camera in the
+gateway Diagnostics page and open **Read-only state check**. Leave **Separate
+parameter API** selected, consent to the read and choose **Run once**.
+
+This checks whether a second Eufy data source supplies the missing view-mode
+candidate. It does not change the lens layout or quality, and it does not enable
+controls. Share only the `reported_parameter_check model=T8170` log line.
+A `valid` candidate is cached data, not confirmation of the active lens or the
+actual picture resolution. If Eufy refuses the read, keep the same account and
+settings rather than repeating it.
+
 ## Read-only parameter check refusals
 
 `owner_binding_unavailable` means EMS could not establish the device and parent
