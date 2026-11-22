@@ -544,7 +544,7 @@ export function supportsCameraLiveAudio(
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && device.channel <= 31
       && Boolean(device.adminUserId) && route.peer.adminUserId === device.adminUserId;
   }
-  if (device.model === "T8113-Z" && device.deviceType === 8) {
+  if ((device.model === "T8113-Z" || device.model === "T8113") && device.deviceType === 8) {
     return route.homeBaseAttached && ["T8010", "T8030"].includes(route.peer.model)
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && Boolean(device.adminUserId);
   }
