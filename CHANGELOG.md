@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.278
+
+- Correct T8214/type-94 doorbell presses that arrive as message 18, notification style 3, with person metadata. The Doorbell sensor now receives the ring while existing person and motion updates are preserved. Duplicate delivery still emits only one ring.
+- Keep separate human alerts from generating a ring, and preserve the existing classification for other models, device types and message envelopes. The affected E340's behaviour after installation still needs reporter confirmation.
+- The existing intermittent HomeBase 3 startup failures and video pauses remain unresolved.
+
 ## 0.1.277
 
 - Enable receive-only live audio for plain T8113/type 8 through HomeBase 2 T8010, using the normal Live audio switch, which starts off. The contributor confirmed audible playback through Home Assistant and Apple Home. Plain T8113 through HomeBase 3 remains excluded.
