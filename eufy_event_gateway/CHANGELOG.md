@@ -2,8 +2,10 @@
 
 ## 0.1.279
 
-- Add a manual read-only state check for S340 cameras on HomeBase 3 when the experimental quality selector is missing. It checks a separate Eufy source without changing camera settings or enabling controls.
-- Keep actual S340 resolution, telephoto selection and intermittent video failures explicitly unconfirmed.
+- Prefer each device or station record's app connection servers, retaining the existing legacy fallback when the app field is unavailable. The correction has passed current normal local media checks. Separate intermittent startup failures and video pauses remain unresolved.
+- Add a manual read-only S340 state check for a quality selector withheld by missing view-mode data, without changing settings or enabling controls.
+- Explain failed motion confirmation with fixed response-class counts in the existing timing line, without changing writes, waits or acceptance.
+- Actual S340 resolution and telephoto selection remain unconfirmed.
 
 ## 0.1.278
 
