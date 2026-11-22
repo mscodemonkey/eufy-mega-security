@@ -1885,14 +1885,21 @@ test("scaling baseline shares H.265 children and isolates stall, reopen and idle
     const beforeReopening = viewers.length;
     const reopening = performance.now();
     const retry = await open(camera.serial);
+    assert.equal(viewers.length, beforeReopening, "cached frames from the stopped source must not launch a converter");
     sources.get(camera.serial)!.write(hevc);
     assert.deepEqual(active(), twoCameras);
     const reopenConverterStarts = viewers.length - beforeReopening;
+    assert.equal(reopenConverterStarts, 1);
     viewers.at(-1)!.stdout.write(h264(0xdd));
     const reopenMs = performance.now() - reopening;
     assert.ok(Buffer.concat(retry.bytes).includes(annexBNal(0x65, 0xdd)));
     assert.deepEqual(starts, [camera.serial, other.serial, camera.serial]);
 
+    const reopenedPeer = await open(camera.serial);
+    assert.ok(Buffer.concat(reopenedPeer.bytes).includes(annexBNal(0x65, 0xdd)));
+    assert.equal(viewers.length, beforeReopening + 1, "a second viewer shares the reopened converter");
+
+    reopenedPeer.stream.emit("close");
     retry.stream.emit("close");
     independent.stream.emit("close");
     context.mock.timers.tick(5);
