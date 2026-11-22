@@ -21,7 +21,7 @@ export class ParameterCheckError extends Error {
 }
 
 /** Exact profiles under investigation, without aliases or inferred device families. */
-export type ParameterCheckModel = "T8410" | "T8417" | "T8030" | "T8910";
+export type ParameterCheckModel = "T8410" | "T8417" | "T8030" | "T8910" | "T8170";
 
 /** Cached value classes only. Time bands use the gateway receipt clock, never live-device freshness. */
 export type ParameterObservation = "missing" | "zero" | "one" | "valid" | "invalid" | "conflicting" | "unset" | "recent" | "older" | "future";
@@ -36,7 +36,7 @@ export interface ParameterCheckSummary {
   /** Present only for the separate, bounded T8910 device-list comparison. */
   readonly source?: "device_list";
   readonly change?: MotionTimeChange;
-  readonly profile: "power_candidates" | "privacy_candidates" | "alarm_volume_candidate" | "motion_time_candidate";
+  readonly profile: "power_candidates" | "privacy_candidates" | "alarm_volume_candidate" | "motion_time_candidate" | "s340_view_mode_candidate";
 
   /** Selected parameter IDs and fixed classes, without raw values or event timestamps. */
   readonly observations: Readonly<Record<string, ParameterObservation>>;
@@ -46,6 +46,7 @@ const profiles = {
   T8410: { profile: "power_candidates", fields: [1035, 2001] },
   T8417: { profile: "privacy_candidates", fields: [1035, 2001, 6250, 6271] },
   T8030: { profile: "alarm_volume_candidate", fields: [1235] },
+  T8170: { profile: "s340_view_mode_candidate", fields: [6243] },
   T8910: { profile: "motion_time_candidate", fields: [1605] },
 } as const;
 
@@ -87,7 +88,7 @@ export function projectReportedParameters(model: ParameterCheckModel, value: unk
     if (seen.has(id)) { observations[id] = "conflicting"; continue; }
     seen.add(id);
     const raw = scalar(row.param_value);
-    observations[id] = model === "T8910" ? motionTimeObservation(raw, receivedAtMilliseconds) : model === "T8030" ? (raw !== null && raw >= 1 && raw <= 26 ? "valid" : "invalid")
+    observations[id] = model === "T8170" ? (raw === 0 || raw === 12 ? "valid" : "invalid") : model === "T8910" ? motionTimeObservation(raw, receivedAtMilliseconds) : model === "T8030" ? (raw !== null && raw >= 1 && raw <= 26 ? "valid" : "invalid")
       : raw === 0 ? "zero" : raw === 1 ? "one" : "invalid";
   }
   return { model, profile: selected.profile, observations };
@@ -126,7 +127,7 @@ export function validateParameterSummary(value: unknown): ParameterCheckSummary 
   const observations: Record<string, ParameterObservation> = {};
   for (const id of selected.fields) {
     const observation = value.observations[id];
-    const allowed = model === "T8910" ? ["missing", "unset", "recent", "older", "future", "invalid", "conflicting"] : model === "T8030" ? ["missing", "valid", "invalid", "conflicting"] : ["missing", "zero", "one", "invalid", "conflicting"];
+    const allowed = model === "T8910" ? ["missing", "unset", "recent", "older", "future", "invalid", "conflicting"] : model === "T8030" || model === "T8170" ? ["missing", "valid", "invalid", "conflicting"] : ["missing", "zero", "one", "invalid", "conflicting"];
     if (typeof observation !== "string" || !allowed.includes(observation)) throw new ParameterCheckError("invalid_response");
     observations[id] = observation as ParameterObservation;
   }

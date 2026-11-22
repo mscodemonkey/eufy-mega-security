@@ -108,3 +108,23 @@ test("device-list comparison normalizes instants and rejects private metadata", 
   for (const value of [{ ...summary, change: "private" }, { ...summary, extra: now },
     { ...summary, model: "T8410" }, { ...summary, source: "unknown" }]) assert.throws(() => validateParameterSummary(value));
 });
+
+
+test("S340 mode candidates remain diagnostic-only and reject missing, duplicate and malformed modes", () => {
+  for (const value of [0, "0", 12, "12"]) {
+    const result = projectReportedParameters("T8170", { params: [
+      { param_type: 6243, param_value: value, private: "SENTINEL" },
+      { param_type: 2730, param_value: "SENTINEL" },
+    ] });
+    assert.deepEqual(result, { model: "T8170", profile: "s340_view_mode_candidate", observations: { 6243: "valid" } });
+    assert.deepEqual(validateParameterSummary(result), result);
+    assert.equal(parameterCheckLog(result), "model=T8170 outcome=read 6243=valid");
+  }
+  assert.equal(projectReportedParameters("T8170", { params: [] }).observations[6243], "missing");
+  for (const value of [1, 5, "012", true, {}, null, "SENTINEL"]) {
+    assert.equal(projectReportedParameters("T8170", { params: [{ param_type: 6243, param_value: value }] }).observations[6243], "invalid");
+  }
+  assert.equal(projectReportedParameters("T8170", { params: [
+    { param_type: 6243, param_value: 12 }, { param_type: "6243", param_value: 12 },
+  ] }).observations[6243], "conflicting");
+});
