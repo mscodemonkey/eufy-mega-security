@@ -5692,7 +5692,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         events.camera(identity);
         if (device.model === "T8170" && device.deviceType === 48) {
           const modeEvidence = identity.streamingQualityControlReason === "live_mode_unconfirmed"
-            ? ` mode_evidence=${device.reads.s340LiveModeEvidence ?? "missing"}` : "";
+            ? ` mode_evidence=${device.s340LiveModeEvidence ?? "missing"}` : "";
           logger.info("camera_s340_quality_admission", `model=T8170 reason=${identity.streamingQualityControlReason}${modeEvidence}`);
         }
       }

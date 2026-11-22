@@ -54,6 +54,9 @@ export interface MegaInventoryDevice {
   readonly guardModeNames?: Readonly<Record<number, string>>;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
+
+  /** Content-free reason for withholding the mode, separate from reported device state. */
+  readonly s340LiveModeEvidence?: S340LiveModeEvidence;
 }
 
 /** Allowlisted, validated current values retained from one Mega inventory row. */
@@ -88,8 +91,6 @@ export interface MegaInventoryReads {
   /** View mode reported by the S340 independently of its quality preference. */
   readonly s340LiveViewMode?: 0 | 12;
 
-  /** Content-free reason for withholding the mode, retained only for exact attached S340s. */
-  readonly s340LiveModeEvidence?: S340LiveModeEvidence;
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
   readonly solarConnected24h?: boolean;
@@ -170,6 +171,10 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     const parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
     const channel = integer(value.device_channel) ?? integer(value.channel);
     const reads = safeInventoryReads(value.params, deviceType, model, (!parentSerial || parentSerial === serial) && channel === 0);
+    const s340ModeEvidence = model === "T8170" && deviceType === 48 && parentSerial && parentSerial !== serial
+      ? readS340LiveModeEvidence(Array.isArray(value.params) ? value.params.flatMap(row => (
+        isRecord(row) && integer(row.param_type) === 6243 ? [{ param_type: 6243, param_value: row.param_value }] : []
+      )) : []) : undefined;
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -207,6 +212,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       })() : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
+      ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
   const adminUserIds = new Map(
@@ -456,7 +462,6 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(streamingQuality !== null && Number.isInteger(streamingQuality) && streamingQuality >= 0 && streamingQuality <= 3
       ? { streamingQualityTier: streamingQuality } : {}),
     ...(s340LiveViewMode !== undefined ? { s340LiveViewMode } : {}),
-    ...(attachedS340 ? { s340LiveModeEvidence: readS340LiveModeEvidence(settingRows) } : {}),
     ...(recordingQuality !== undefined ? { recordingQualityTier: recordingQuality } : {}),
     ...(solarIntensity !== null && solarIntensity >= 0 && solarIntensity <= Number.MAX_SAFE_INTEGER
       ? { solarIntensity } : {}),

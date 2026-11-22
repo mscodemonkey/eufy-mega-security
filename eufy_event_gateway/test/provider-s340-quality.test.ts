@@ -121,7 +121,9 @@ for (const [options, reason] of [
     assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlReason, reason);
     const admission = f.logs.filter(line => line.includes("event=camera_s340_quality_admission"));
     assert.equal(admission.length, 1);
-    assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}\n`));
+    const modeEvidence = reason === "live_mode_unconfirmed"
+      ? ` mode_evidence=${"conflictingMode" in options ? "duplicate" : "mode" in options && options.mode === null ? "missing" : "invalid_string"}` : "";
+    assert.ok(admission[0]!.endsWith(`model=T8170 reason=${reason}${modeEvidence}\n`));
     assert.ok(!admission[0]!.includes("synthetic-owner") && !admission[0]!.includes("synthetic-child"));
     const readsBefore = f.reads();
     await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
