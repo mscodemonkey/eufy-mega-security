@@ -229,6 +229,7 @@ for (const stationModel of ["T8010", "T8030"]) {
       assert.equal(timingLines.length, 1);
       assert.match(timingLines[0]!, /outcome=failed failure_phase=readback/);
       assert.match(timingLines[0]!, /connections=1 readback_attempts=12/);
+      assert.match(timingLines[0]!, /readback_missing_camera=0 readback_missing_value=0 readback_different_value=12 readback_binding_changed=0 readback_unreconciled=0/);
     } finally { await f.dispose(); }
   });
 }
@@ -731,7 +732,7 @@ test("motion timings account for the owned phases without exposing identities or
     await f.provider.setCameraMotionDetection("camera", false);
     assert.equal(lines.length, 1);
     assert.match(lines[0]!, /model=T8113-Z outcome=confirmed failure_phase=none total_ms=88 queue_ms=0 prepare_ms=0 connect_ms=11 write_ms=23 retire_ms=17 readback_ms=37 backoff_ms=0 connections=1 readback_attempts=1/);
-    assert.doesNotMatch(lines[0]!, /synthetic|owner|camera=|serial|enabled|false|true/);
+    assert.doesNotMatch(lines[0]!, /synthetic|owner|(?:^|\s)(?:camera|serial|enabled)=|false|true/);
   } finally { await f.dispose(); }
 });
 
@@ -787,6 +788,33 @@ for (const lost of [false, true]) {
       assert.ok(f.closes.includes(f.sessions[0]!));
       assert.equal((await f.provider.setCameraMotionDetection("camera", true)).motionDetectionEnabled, true);
       assert.equal(write.mock.callCount(), 2);
+    } finally { await f.dispose(); }
+  });
+}
+
+
+for (const shape of ["missing-camera", "missing-setting", "rebound-camera"] as const) {
+  test(`motion readback diagnostics preserve failed confirmation for ${shape}`, async context => {
+    const f = await fixture(context, false, "T8030");
+    const lines = motionTimingLines(context);
+    const inventory = MegaClient.prototype.inventory;
+    context.mock.method(MegaClient.prototype, "inventory", async function (this: MegaClient, ...args: Parameters<typeof inventory>) {
+      const result = await inventory.apply(this, args);
+      return { devices: result.devices.flatMap(row => {
+        if (row.device_sn !== "camera") return [row];
+        if (shape === "missing-camera") return [];
+        if (shape === "rebound-camera") return [{ ...row, device_channel: 2 }];
+        return [{ ...row, params: [] }];
+      }) };
+    });
+    try {
+      await assert.rejects(f.provider.setCameraMotionDetection("camera", false));
+      assert.equal(f.write.mock.callCount(), 1);
+      assert.equal(lines.length, 1);
+      if (shape === "missing-camera") assert.match(lines[0]!, /readback_missing_camera=12 readback_missing_value=0 readback_different_value=0/);
+      if (shape === "missing-setting") assert.match(lines[0]!, /readback_missing_camera=0 readback_missing_value=12 readback_different_value=0/);
+      if (shape === "rebound-camera") assert.match(lines[0]!, /readback_missing_camera=0 readback_missing_value=0 readback_different_value=0 readback_binding_changed=1/);
+      assert.doesNotMatch(lines[0]!, /synthetic|owner|(?:^|\s)(?:camera|serial|enabled)=|false|true/);
     } finally { await f.dispose(); }
   });
 }
