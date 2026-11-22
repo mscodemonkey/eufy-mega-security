@@ -31,18 +31,38 @@ export function isS340LiveQualityRoute(route: ModelControlRoute): boolean {
 
 type InventoryParameter = { readonly param_type: number; readonly param_value: unknown };
 
+/** Decode one reported quality record without selecting a preference bank. */
+function qualityRecord(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  if (value.length > 4096) return undefined;
+  try { return JSON.parse(value); }
+  catch {
+    if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(value)) return undefined;
+    try { return JSON.parse(Buffer.from(value, "base64").toString("utf8")); }
+    catch { return undefined; }
+  }
+}
+
 /**
  * Read the S340 view mode independently of the reported quality preference.
- * The model reports 0 for single view and 12 for dual view. Duplicate rows
- * leave the mode unknown, even if their values agree.
+ * Both the separate mode parameter and the quality record's explicit cur_mode
+ * report 0 for single view and 12 for dual view. Missing values are never
+ * inferred from available banks. Duplicate or conflicting reports stay unknown.
  */
 export function readS340LiveViewMode(params: readonly InventoryParameter[]): 0 | 12 | undefined {
   const modes = params.filter(row => row.param_type === 6243);
-  if (modes.length !== 1) return undefined;
-  const value = modes[0]!.param_value;
-  if (value === 0 || value === "0") return 0;
-  if (value === 12 || value === "12") return 12;
-  return undefined;
+  if (modes.length > 1) return undefined;
+  const nativeMode = (value: unknown): 0 | 12 | undefined => value === 0 || value === "0" ? 0
+    : value === 12 || value === "12" ? 12 : undefined;
+  const separate = nativeMode(modes[0]?.param_value);
+  if (modes.length === 1 && separate === undefined) return undefined;
+  const qualities = params.filter(row => row.param_type === 2730);
+  const record = qualities.length === 1 ? qualityRecord(qualities[0]!.param_value) : undefined;
+  if (record !== null && typeof record === "object" && !Array.isArray(record) && Object.hasOwn(record, "cur_mode")) {
+    const embedded = nativeMode((record as Record<string, unknown>).cur_mode);
+    return embedded !== undefined && (separate === undefined || separate === embedded) ? embedded : undefined;
+  }
+  return separate;
 }
 
 /**
@@ -54,16 +74,7 @@ export function readS340LiveQuality(params: readonly InventoryParameter[]): S340
   if (videoMode === undefined) return undefined;
   const qualities = params.filter(row => row.param_type === 2730);
   if (qualities.length !== 1) return undefined;
-  let value = qualities[0]!.param_value;
-  if (typeof value === "string") {
-    if (value.length > 4096) return undefined;
-    try { value = JSON.parse(value); }
-    catch {
-      if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(value as string)) return undefined;
-      try { value = JSON.parse(Buffer.from(value as string, "base64").toString("utf8")); }
-      catch { return undefined; }
-    }
-  }
+  let value = qualityRecord(qualities[0]!.param_value);
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const mode = (value as Record<string, unknown>)[videoMode === 12 ? "mode_1" : "mode_0"];
     value = mode !== null && typeof mode === "object" && !Array.isArray(mode)

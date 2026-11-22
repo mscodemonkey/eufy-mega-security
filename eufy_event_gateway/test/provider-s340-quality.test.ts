@@ -17,7 +17,7 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import { HomeBasePpcsSession } from "../src/stream/homebase-ppcs.js";
 
 /** Own a synthetic attached camera, state changes and all session retirement. */
-async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number | null; flipModeAt?: "baseline" | "confirmation"; conflictingMode?: boolean; qualityReported?: boolean; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
+async function fixture(context: TestContext, options: { optIn?: boolean; owner?: boolean; apiAuth?: boolean; mode?: number | null; embeddedMode?: number; flipModeAt?: "baseline" | "confirmation"; conflictingMode?: boolean; qualityReported?: boolean; parentOwner?: string; missingAfter?: boolean; missingBefore?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "s340-quality-"));
   let singleQuality = 0, dualQuality = 2, writes = 0, reads = 0, stops = 0;
   const logs: string[] = [];
@@ -40,7 +40,7 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
           ...(mode === null ? [] : [{ param_type: 6243, param_value: String(mode ?? 0) }]),
           ...(options.conflictingMode ? [{ param_type: 6243, param_value: "12" }] : []),
           ...(options.qualityReported === false ? [] : [
-            { param_type: 2730, param_value: Buffer.from(JSON.stringify({ mode_0: { quality: singleQuality }, mode_1: { quality: dualQuality } })).toString("base64") },
+            { param_type: 2730, param_value: Buffer.from(JSON.stringify({ ...(options.embeddedMode === undefined ? {} : { cur_mode: flipMode ? 0 : options.embeddedMode }), mode_0: { quality: singleQuality }, mode_1: { quality: dualQuality } })).toString("base64") },
           ]),
         ] },
     ] };
@@ -54,7 +54,7 @@ async function fixture(context: TestContext, options: { optIn?: boolean; owner?:
   context.mock.method(FirstPartyPpcsSession.prototype, "waitUntilClosed", async () => {});
   context.mock.method(FirstPartyPpcsSession.prototype, "close", function(this: FirstPartyPpcsSession) { stops++; this.output.end(); });
   context.mock.method(FirstPartyPpcsSession.prototype, "writeReviewedCameraSetting", async (change: CameraSettingChange, route: ModelControlRoute, dispatch: () => void) => {
-    assert.equal(route.liveQualityVideoMode, options.mode ?? 0);
+    assert.equal(route.liveQualityVideoMode, options.mode ?? options.embeddedMode ?? 0);
     assert.equal(route.channel, 5);
     dispatch();
     writes++;
@@ -169,3 +169,21 @@ test("a pending S340 view start blocks the preference write", async context => {
   await starting;
   assert.equal(f.writes(), 0);
 });
+
+
+test("S340 quality admission and fresh confirmation use an explicitly embedded dual mode", async context => {
+  const f = await fixture(context, { mode: null, embeddedMode: 12 });
+  assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlReason, "ready");
+  assert.equal(f.identities.get("synthetic-child")?.reportedSettings?.streamingQualityTier, 2);
+  const changed = await f.provider.setCameraStreamingQuality("synthetic-child", 3);
+  assert.equal(changed.reportedSettings?.streamingQualityTier, 3);
+  assert.equal(f.writes(), 1);
+});
+
+for (const flipModeAt of ["baseline", "confirmation"] as const) {
+  test(`embedded view mode changing at ${flipModeAt} cannot authorize or confirm another bank`, async context => {
+    const f = await fixture(context, { mode: null, embeddedMode: 12, flipModeAt });
+    await assert.rejects(f.provider.setCameraStreamingQuality("synthetic-child", 3));
+    assert.equal(f.writes(), flipModeAt === "baseline" ? 0 : 1);
+  });
+}
