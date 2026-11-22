@@ -10,7 +10,7 @@ import { readCameraSetting } from "./camera-settings.js";
 import { e21Readings, type E21Readings } from "./e21-profile.js";
 import { entrySensorHealth } from "./entry-sensor-health.js";
 import { homeBaseInventoryAlarmVolume } from "./homebase-inventory-volume.js";
-import { readS340LiveQuality, readS340LiveViewMode } from "./s340-live-quality.js";
+import { readS340LiveModeEvidence, readS340LiveQuality, readS340LiveViewMode, type S340LiveModeEvidence } from "./s340-live-quality.js";
 
 /** Normalized Mega inventory row used to decide camera support and routing. */
 export interface MegaInventoryDevice {
@@ -87,6 +87,9 @@ export interface MegaInventoryReads {
 
   /** View mode reported by the S340 independently of its quality preference. */
   readonly s340LiveViewMode?: 0 | 12;
+
+  /** Content-free reason for withholding the mode, retained only for exact attached S340s. */
+  readonly s340LiveModeEvidence?: S340LiveModeEvidence;
   readonly recordingQualityTier?: number;
   readonly solarIntensity?: number;
   readonly solarConnected24h?: boolean;
@@ -453,6 +456,7 @@ export function safeInventoryReads(value: unknown, deviceType: number | null = n
     ...(streamingQuality !== null && Number.isInteger(streamingQuality) && streamingQuality >= 0 && streamingQuality <= 3
       ? { streamingQualityTier: streamingQuality } : {}),
     ...(s340LiveViewMode !== undefined ? { s340LiveViewMode } : {}),
+    ...(attachedS340 ? { s340LiveModeEvidence: readS340LiveModeEvidence(settingRows) } : {}),
     ...(recordingQuality !== undefined ? { recordingQualityTier: recordingQuality } : {}),
     ...(solarIntensity !== null && solarIntensity >= 0 && solarIntensity <= Number.MAX_SAFE_INTEGER
       ? { solarIntensity } : {}),

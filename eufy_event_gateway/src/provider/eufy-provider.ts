@@ -5691,7 +5691,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         const identity = this.#cameraIdentity(device, eventProfile);
         events.camera(identity);
         if (device.model === "T8170" && device.deviceType === 48) {
-          logger.info("camera_s340_quality_admission", `model=T8170 reason=${identity.streamingQualityControlReason}`);
+          const modeEvidence = identity.streamingQualityControlReason === "live_mode_unconfirmed"
+            ? ` mode_evidence=${device.reads.s340LiveModeEvidence ?? "missing"}` : "";
+          logger.info("camera_s340_quality_admission", `model=T8170 reason=${identity.streamingQualityControlReason}${modeEvidence}`);
         }
       }
       else { const trial = this.#nvrTrialIdentity(device); if (trial) events.camera(trial); }

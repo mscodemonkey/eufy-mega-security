@@ -169,3 +169,11 @@ test("a pending S340 view start blocks the preference write", async context => {
   await starting;
   assert.equal(f.writes(), 0);
 });
+
+
+test("S340 startup logs a closed mode-evidence category without enabling a missing-mode control", async context => {
+  const f = await fixture(context, { mode: null });
+  assert.equal(f.identities.get("synthetic-child")?.streamingQualityControlSupported, false);
+  assert.ok(f.logs.some(line => line.includes("camera_s340_quality_admission model=T8170 reason=live_mode_unconfirmed mode_evidence=missing")));
+  assert.equal(f.writes(), 0);
+});
