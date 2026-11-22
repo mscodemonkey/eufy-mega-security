@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
+import inspect
 import math
 from typing import Any
 
@@ -40,6 +41,16 @@ class HlsViewActivity:
         self._cleanup = output.cleanup
         self._wrapped_awake: Callable[[], None] | None = None
         self._wrapped_cleanup: Callable[[], None] | None = None
+        self._recv = None
+        self._wrapped_recv = None
+        self._created_at = self._loop.time()
+        self._segment_waits = 0
+        self._segment_waits_completed = 0
+        self._segment_waits_cancelled = 0
+        self._segment_waits_failed = 0
+        self._segment_wait_max = 0.0
+        self._first_segment_ready: float | None = None
+        self._two_segments_ready: float | None = None
 
     @classmethod
     def install(cls, output: Any, allowed: Callable[[], bool]) -> HlsViewActivity | None:
@@ -98,6 +109,47 @@ class HlsViewActivity:
         except (AttributeError, TypeError):
             observer.close()
             return None
+
+        # Segment waits belong to this output. Never wrap HA's global HTTP
+        # handlers or retain a request, URL, segment, or exception text.
+        try:
+            recv = getattr(output, "recv", None)
+        except Exception:
+            recv = None
+        if inspect.iscoroutinefunction(recv):
+            async def receive() -> bool:
+                """Measure HA's existing segment wait without changing its outcome."""
+                started = observer._loop.time()
+                observer._segment_waits = min(2**31 - 1, observer._segment_waits + 1)
+                try:
+                    result = await recv()
+                except asyncio.CancelledError:
+                    observer._segment_waits_cancelled = min(2**31 - 1, observer._segment_waits_cancelled + 1)
+                    raise
+                except Exception:
+                    observer._segment_waits_failed = min(2**31 - 1, observer._segment_waits_failed + 1)
+                    raise
+                else:
+                    observer._segment_waits_completed = min(2**31 - 1, observer._segment_waits_completed + 1)
+                    if result:
+                        elapsed = observer._loop.time() - observer._created_at
+                        if observer._first_segment_ready is None:
+                            observer._first_segment_ready = elapsed
+                        try:
+                            if len(output.sequences) >= 2 and observer._two_segments_ready is None:
+                                observer._two_segments_ready = elapsed
+                        except Exception:
+                            pass
+                    return result
+                finally:
+                    observer._segment_wait_max = max(observer._segment_wait_max, observer._loop.time() - started)
+
+            try:
+                output.recv = receive
+                observer._recv = recv
+                observer._wrapped_recv = receive
+            except (AttributeError, TypeError):
+                pass
         return observer
 
     def _request(self) -> None:
@@ -127,7 +179,12 @@ class HlsViewActivity:
             self._awake()
 
     def diagnostic(self) -> dict[str, Any]:
-        """Retain this output's last cleanup without inferring HA's removal cause."""
+        """Retain content-free cleanup and public segment-wait observations.
+
+        Ready times start at observer installation and are sampled when a wait
+        returns. They do not measure HTTP response completion or displayed video,
+        and may follow the actual arrival of an already buffered segment.
+        """
         result = {"installed": not self._closed, "requests": self._requests,
                   "quiet_seconds": self._quiet_seconds, "expiring": self.expiring}
         try:
@@ -144,6 +201,22 @@ class HlsViewActivity:
             pass
         if self._cleanup_observation is not None:
             result["cleanup"] = dict(self._cleanup_observation)
+        if self._recv is not None:
+            result["segment_wait"] = {
+                "calls": self._segment_waits,
+                "completed": self._segment_waits_completed,
+                "cancelled": self._segment_waits_cancelled,
+                "failed": self._segment_waits_failed,
+                "max_seconds": round(min(86400, max(0, self._segment_wait_max)), 3),
+                "first_ready_observed_seconds": (
+                    round(min(86400, max(0, self._first_segment_ready)), 3)
+                    if self._first_segment_ready is not None else None
+                ),
+                "two_ready_observed_seconds": (
+                    round(min(86400, max(0, self._two_segments_ready)), 3)
+                    if self._two_segments_ready is not None else None
+                ),
+            }
         return result
 
     def close(self) -> None:
@@ -159,5 +232,7 @@ class HlsViewActivity:
                 self.output.idle_timer.awake = self._awake
             if self.output.cleanup is self._wrapped_cleanup:
                 self.output.cleanup = self._cleanup
+            if self._wrapped_recv is not None and self.output.recv is self._wrapped_recv:
+                self.output.recv = self._recv
         except (AttributeError, TypeError):
             pass
