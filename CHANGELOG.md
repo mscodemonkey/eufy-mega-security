@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.279
+
+- Add a manual read-only state check for S340 cameras on HomeBase 3 when the experimental quality selector is missing. It checks a separate Eufy source without changing camera settings or enabling controls.
+- Keep actual S340 resolution, telephoto selection and intermittent video failures explicitly unconfirmed.
+
 ## 0.1.278
 
 - Correct T8214/type-94 doorbell presses that arrive as message 18, notification style 3, with person metadata. The Doorbell sensor now receives the ring while existing person and motion updates are preserved. Duplicate delivery still emits only one ring.
