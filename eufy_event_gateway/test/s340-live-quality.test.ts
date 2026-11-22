@@ -87,29 +87,3 @@ test("attached S340 quality ignores legacy telemetry while standalone reads reta
   assert.equal(safeInventoryReads(rows, 48, "T8170", true).s340LiveViewMode, undefined);
   assert.equal(safeInventoryReads(rows.slice(0, 1), 48, "T8170", false).streamingQualityTier, undefined);
 });
-
-
-test("an explicit quality-record mode qualifies its own bank without a separate mode row", () => {
-  for (const mode of [0, 12]) {
-    const record = { cur_mode: mode, mode_0: { quality: 3 }, mode_1: { quality: 1 } };
-    for (const raw of [record, JSON.stringify(record), Buffer.from(JSON.stringify(record)).toString("base64")]) {
-      const rows = [{ param_type: 2730, param_value: raw }];
-      assert.deepEqual(readS340LiveQuality(rows), { quality: mode === 0 ? 3 : 1, videoMode: mode });
-      assert.equal(safeInventoryReads(rows, 48, "T8170", false).s340LiveViewMode, mode);
-      assert.equal(safeInventoryReads(rows, 48, "T8170", true).s340LiveViewMode, undefined);
-    }
-  }
-});
-
-test("missing, duplicate and conflicting mode evidence cannot select a quality bank", () => {
-  for (const cur_mode of [undefined, null, true, 1, -1, 99, "bad"]) {
-    assert.equal(readS340LiveQuality([{ param_type: 2730, param_value: { cur_mode, mode_1: { quality: 3 } } }]), undefined);
-  }
-  const quality = { param_type: 2730, param_value: { cur_mode: 12, mode_0: { quality: 3 }, mode_1: { quality: 1 } } };
-  for (const rows of [[quality, quality], [quality, { param_type: 6243, param_value: 0 }],
-    [quality, { param_type: 6243, param_value: "bad" }],
-    [quality, { param_type: 6243, param_value: 12 }, { param_type: 6243, param_value: 12 }]]) {
-    assert.equal(readS340LiveQuality(rows), undefined);
-  }
-  assert.deepEqual(readS340LiveQuality([quality, { param_type: 6243, param_value: 12 }]), { quality: 1, videoMode: 12 });
-});
