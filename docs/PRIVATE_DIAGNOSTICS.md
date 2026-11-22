@@ -360,6 +360,13 @@ where an old check stopped. Neither outcome establishes polling availability.
 
 ## Slow motion-detection controls
 
+The timing line includes fixed counts for a missing camera row, missing setting,
+different reported value, changed binding or a value that could not be reconciled.
+These counts explain failed confirmation without printing account details or the
+requested setting. They do not establish why Eufy's response differs or make an
+unconfirmed change successful.
+
+
 The gateway logs one `camera_motion_control_timings` line after each ordinary
 legacy motion-detection operation finishes, including failed operations. This
 covers the existing HomeBase and standalone PPCS control path, not the separate
