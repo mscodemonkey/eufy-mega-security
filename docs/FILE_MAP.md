@@ -61,7 +61,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | Path | Purpose |
 | --- | --- |
 | `src/stream/first-party-ppcs.ts` | Production Eufy PPCS UDP lookup, CAM_CHECK, HomeBase key unwrap, media request, H.264 extraction, and heartbeat. PPCS means Eufy's peer-to-peer camera transport. |
-| `src/stream/original-homebase-live.ts` | Selects and builds the older RSA or derived-key live start and stop for T8111 through T8001 and T8002. Not yet hardware-confirmed. |
+| `src/stream/original-homebase-live.ts` | Selects and builds the older RSA or derived-key live start and stop for T8111 through T8001 and T8002. Live video is reported working on T8001 only. |
 | `src/stream/homebase-event-names.ts` | Reads one owner-bound doorbell history page, exposes aggregate diagnostics and privately selects a single name for an exact notification record/path. |
 | `src/stream/homebase-recordings.ts` | Reads owned SoloCam E30 history through HomeBase 3 and verifies bounded saved transfers with per-download recipient keys. |
 | `src/stream/stored-recordings.ts` | Reads standalone SoloCam SD events and finalizes and verifies saved MP4 media. |

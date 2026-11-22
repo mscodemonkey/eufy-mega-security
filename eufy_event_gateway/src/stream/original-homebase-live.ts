@@ -4,8 +4,9 @@
  * These stations predate the ECC/AES-GCM media start used by later HomeBases. They can
  * return gateway info in the clear and take an integer or JSON start protected with
  * AES-128-ECB at most. The wire shapes here follow eufy-security-client 4.1.1-1 (MIT),
- * the library used by homebridge-eufy-security 4.7.2. They are not yet hardware-confirmed
- * in this gateway. The PPCS session owns sockets, sequencing, timers and cleanup. This
+ * the library used by homebridge-eufy-security 4.7.2. Live video is reported working on
+ * one T8001. T8002 and the individual key and firmware branches are not hardware-confirmed.
+ * The PPCS session owns sockets, sequencing, timers and cleanup. This
  * module only selects the route, derives the command key and builds command bodies.
  */
 
