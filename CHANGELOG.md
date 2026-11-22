@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.279
+
+- Prefer each device or station record's app connection servers, retaining the existing legacy fallback when the app field is unavailable. The correction has passed current normal local media checks. Separate intermittent startup failures and video pauses remain unresolved.
+- Add a manual read-only S340 state check for a quality selector withheld by missing view-mode data, without changing settings or enabling controls.
+- Explain failed motion confirmation with fixed response-class counts in the existing timing line, without changing writes, waits or acceptance.
+- Actual S340 resolution and telephoto selection remain unconfirmed.
+
 ## 0.1.278
 
 - Correct T8214/type-94 doorbell presses that arrive as message 18, notification style 3, with person metadata. The Doorbell sensor now receives the ring while existing person and motion updates are preserved. Duplicate delivery still emits only one ring.
