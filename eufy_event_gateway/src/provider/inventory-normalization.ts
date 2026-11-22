@@ -155,7 +155,11 @@ export interface MegaInventoryReads {
   readonly motionEventSeconds?: number;
 }
 
-/** Parse and normalize the untrusted device list returned by Mega. */
+/**
+ * Parse the untrusted device list without sharing connection fields across rows.
+ * Prefer the bounded app connection value, retaining the legacy peer list when
+ * that field is missing, blank, oversized or of the wrong type.
+ */
 export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
   if (!isRecord(response) || !Array.isArray(response.devices)) return [];
   const devices: MegaInventoryDevice[] = [];
@@ -185,7 +189,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       category: safeValue(value.category, 100),
       channel,
       p2pDid: safeValue(value.p2p_did, 128),
-      p2pConnection: safeValue(value.p2p_conn, 512) ?? safeValue(value.app_conn, 512),
+      p2pConnection: safeValue(value.app_conn, 512) ?? safeValue(value.p2p_conn, 512),
       localAddress: freshestLanAddress(value),
       cipherId: integer(value.cipher_id),
       adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
