@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.277
+
+- Enable receive-only live audio for plain T8113/type 8 through HomeBase 2 T8010, using the normal Live audio switch, which starts off. The contributor confirmed audible playback through Home Assistant and Apple Home. Plain T8113 through HomeBase 3 remains excluded.
+- Add a T8111/type 1 live-video route through the original T8001/type 0 HomeBase. One contributor setup is reported working. T8002 keeps its existing route. Fresh snapshots, concurrent cameras and sustained viewing remain unconfirmed. This adds no audio or controls.
+- Retain content-free Home Assistant segment-wait timings after HLS cleanup to help investigate long startup waits and freezes. Return values, cancellation, segment settings and playback behaviour stay unchanged.
+- Add a closed mode-evidence reason to the existing attached S340 quality-admission log. Missing, duplicate and invalid values remain unavailable, with no inferred view mode or quality change.
+- Wait for a current H.265 source before starting its converter, rather than seeding a replacement from cached frames after the source has ended.
+- The existing intermittent HomeBase 3 startup failures and video pauses remain unresolved. This release does not establish a repair for them.
+
 ## 0.1.276
 
 - Accept URL-safe notification data within the existing size limits. S120 motion notification delivery still needs a retest.
