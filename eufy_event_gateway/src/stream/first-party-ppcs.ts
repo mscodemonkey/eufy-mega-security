@@ -185,7 +185,8 @@ export function acceptsAttachedCameraMedia(command: number, frameChannel: number
  * S220 additionally requires its exact reported device type.
  * T8210 requires type 7 and its HomeBase 3 parent, or the receive-only HB2 trial.
  * The HB2 trial also admits exact T8140-Z/type 14 through T8010/type 0.
- * T8113-Z and T8113 require type 8 and their observed HomeBase 2 or 3 parent.
+ * T8113-Z requires type 8 and its observed HomeBase 2 or 3 parent.
+ * Plain T8113 requires type 8, HomeBase 2/type 0 and child channel 0..31.
  * The E210 trial requires exact type 46, an HB3/type-18 parent and channel 0..31.
  * Payload validation and protection checks remain with the owning session.
  */
@@ -201,6 +202,7 @@ export function acceptsSoloCamAudio(cameraModel: string, homeBaseAttached: boole
       && ((cameraModel === "T8210" && cameraDeviceType === 7) || (cameraModel === "T8140-Z" && cameraDeviceType === 14))
       && (purpose === undefined || purpose === "media"))
     || ((cameraModel === "T8113-Z" || cameraModel === "T8113") && cameraDeviceType === 8 && homeBaseAttached
+      && (cameraModel !== "T8113" || stationModel === "T8010" && stationDeviceType === 0 && requestedChannel <= 31)
       && (stationModel === "T8010" || stationModel === "T8030")))
     && Number.isSafeInteger(requestedChannel) && requestedChannel >= 0
     && frameChannel === requestedChannel && (homeBaseAttached || requestedChannel === 0) && purpose !== "control" && purpose !== "passive";

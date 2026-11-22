@@ -546,6 +546,7 @@ export function supportsCameraLiveAudio(
   }
   if ((device.model === "T8113-Z" || device.model === "T8113") && device.deviceType === 8) {
     return route.homeBaseAttached && ["T8010", "T8030"].includes(route.peer.model)
+      && (device.model !== "T8113" || route.peer.model === "T8010" && route.peer.deviceType === 0 && device.channel !== null && device.channel <= 31)
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && Boolean(device.adminUserId);
   }
   if (device.model === "T8210" && device.deviceType === 7) {
