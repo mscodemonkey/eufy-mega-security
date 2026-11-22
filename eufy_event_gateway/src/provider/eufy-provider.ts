@@ -7220,6 +7220,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const device = this.#devices.get(event.cameraSerial);
     if (device && isT8442Camera(device) && event.stationSerial !== (device.parentSerial || device.serial)) return;
     if (!device) return;
+    const doorbellPush = doorbellPushKind(event, device);
+    const ringCarriesDetection = doorbellPush === "press" && doorbellPushKind(event) === "detection";
     const delivery = this.#pushDeduplicator.observe(
       event.cameraSerial,
       event.eventId,
@@ -7234,7 +7236,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (delivery.handleState && isSupportedMegaCamera(device) && pictureEventAccepted
       && (delivery.retainPicture || cameraDetectionKind(event.eventType) !== null
         || event.eventType === 1 && genericSecurityDetectionKinds(event).length > 0
-        || (this.config.experimentalHomeBaseEventNames || historyOnlyPicture) && isDoorbellDevice(device) && doorbellPushKind(event) === "press")) {
+        || (this.config.experimentalHomeBaseEventNames || historyOnlyPicture) && isDoorbellDevice(device) && doorbellPush === "press")) {
       const previous = this.#pictureOwners.get(device.serial);
       const olderVisit = previous && this.#pictureOwnerCurrent(previous) && previous.event.recording && event.recording
         && event.recording.triggerMilliseconds < previous.event.recording.triggerMilliseconds;
@@ -7266,8 +7268,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       ? JSON.stringify([this.#startupGeneration, event.eventId, event.eventType, event.stationSerial]) : null;
     const personDelivery = cameraDetectionKind(event.eventType) === "person"
       || event.eventType === 1 && genericSecurityDetectionKinds(event).includes("person")
-      || isDoorbellDevice(device) && doorbellPushKind(event) === "detection";
-    const pressDelivery = isDoorbellDevice(device) && doorbellPushKind(event) === "press";
+      || isDoorbellDevice(device) && (doorbellPush === "detection" || ringCarriesDetection);
+    const pressDelivery = isDoorbellDevice(device) && doorbellPush === "press";
     const nameOwner = this.#pictureOwners.get(device.serial);
     if (personName !== null && nameOwner && event.eventId !== null && nameOwner.event.eventId === event.eventId
       && nameOwner.event.eventType === event.eventType && nameOwner.event.stationSerial === event.stationSerial) nameOwner.nameRecoveryStopped = true;
@@ -7281,7 +7283,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       this.#queueHistoryName(events, event, detectionEventIdentity, pressDelivery ? "doorbell" : "person");
     }
     if (!delivery.handleState) {
-      if (isSupportedMegaCamera(device) && isDoorbellDevice(device) && doorbellPushKind(event) === "press"
+      if (isSupportedMegaCamera(device) && isDoorbellDevice(device) && doorbellPush === "press"
         && detectionEventIdentity && personName !== null) {
         events.doorbellName?.(event.cameraSerial, detectionEventIdentity, personName);
       }
@@ -7299,11 +7301,10 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       events.sensorMotion(event.cameraSerial, true);
       return;
     }
-    const doorbellPush = doorbellPushKind(event);
     if (doorbellPush !== null && isDoorbellDevice(device)) {
       if (doorbellPush === "press") {
         events.doorbell(event.cameraSerial, true, personName, detectionEventIdentity);
-        return;
+        if (!ringCarriesDetection) return;
       }
       const kinds = new Set(event.detectionEvidence);
       if (personName !== null) kinds.add("person");
@@ -8485,9 +8486,9 @@ export function safePushLogSummary(
     cameraAccepted
     && device !== null
     && isDoorbellDevice(device)
-    && doorbellPushKind(event) !== null
+    && doorbellPushKind(event, device) !== null
   ) {
-    const doorbellPush = doorbellPushKind(event);
+    const doorbellPush = doorbellPushKind(event, device);
     if (doorbellPush === "press") handling = "doorbell_press";
     else if (doorbellPush === "detection") handling = "doorbell_detection";
   }
@@ -8515,12 +8516,21 @@ export function safePushLogSummary(
   ].join(" ");
 }
 
-/** Distinguish a doorbell press from style-3 detection pushes that reuse event type 3103. */
+/**
+ * Give the exact T8214/type-94 ring envelope priority over accompanying AI metadata.
+ *
+ * Its Android adapter preserves event 3103 as a ring, including message-18/style-3
+ * pushes. Unknown identities and other models retain the legacy detection split.
+ * The provider separately retains detection updates carried with a qualified ring.
+ */
 export function doorbellPushKind(
   event: Pick<MegaPushEvent, "eventType" | "notificationStyle">
-    & Partial<Pick<MegaPushEvent, "detectionEvidence" | "personName">>,
+    & Partial<Pick<MegaPushEvent, "messageType" | "detectionEvidence" | "personName">>,
+  device?: Pick<MegaInventoryDevice, "model" | "category" | "deviceType"> | null,
 ): "press" | "detection" | null {
   if (event.eventType !== 3103) return null;
+  if (device?.model === "T8214" && device.deviceType === 94 && device.category === "eufy_security"
+    && event.messageType === 18 && event.notificationStyle === 3) return "press";
   if (event.notificationStyle !== 3) return "press";
   const hasStructuredDetection = (event.detectionEvidence?.length ?? 0) > 0
     || (typeof event.personName === "string" && event.personName.trim().length > 0);
