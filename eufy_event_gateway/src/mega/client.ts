@@ -850,10 +850,13 @@ export class MegaClient {
   }
 
   /** Fetch the ECC private keys used by direct media or a station's level-two PPCS session. */
-  async getCiphers(cipherIds: readonly number[], userId: string, stationSerial: string): Promise<readonly Record<string, unknown>[]> {
+  async getCiphers(cipherIds: readonly number[], userId: string, stationSerial: string,
+    stationField: "station_sn" | "sn" | "omitted" = "station_sn"): Promise<readonly Record<string, unknown>[]> {
     this.#requireAuthentication();
+
+    // ECC lookups name `station_sn`. RSA lookups name `sn`, or no station in older clients.
     const result = await this.#call("security", "/v3/app/cipher/get_ciphers", {
-      cipher_ids: [...cipherIds], user_id: userId, station_sn: stationSerial,
+      cipher_ids: [...cipherIds], user_id: userId, ...(stationField === "omitted" ? {} : { [stationField]: stationSerial }),
     });
     const decoded = this.#decodeResult(result);
     if (Array.isArray(decoded)) return decoded.filter(isRecord);
@@ -1225,7 +1228,9 @@ export class MegaClient {
       result = options?.cachedIdentityOnly ? await generalRtcAwait(pending, lifetime, "admission") : await pending;
     } catch (error) {
       lifetime.throwIfAborted();
-      if (!retryIdentity || path !== "/v3/app/cipher/get_ciphers" || !(error instanceof MegaHttpRejection)
+      // Only the station_sn lookup may spend this shared recovery allowance.
+      if (!retryIdentity || path !== "/v3/app/cipher/get_ciphers" || !isRecord(payload) || !("station_sn" in payload)
+        || !(error instanceof MegaHttpRejection)
         || !["empty", "empty_or_truncated"].includes(error.responseKind)) throw error;
 
       // An empty rejection does not prove expiry. Replay only this read, with

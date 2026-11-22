@@ -819,6 +819,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #dskRefreshes = new Map<string, Promise<{ readonly key: string; readonly expiresAt: number | null } | null>>();
   readonly #cipherKeys = new Map<string, string>();
   readonly #cipherFlights = new Map<string, Promise<PpcsCipherKeyOutcome>>();
+  readonly #originalCipherKeys = new Map<string, readonly string[]>();
+  readonly #originalCipherFlights = new Map<string, Promise<readonly string[]>>();
 
   /** One provider lifetime salts log references without publishing notification or device IDs. */
   readonly #visitLogSecret = randomBytes(32);
@@ -925,6 +927,53 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   async #resolveCipherKey(cipherId: number, peer: MegaInventoryDevice): Promise<string | undefined> {
     const outcome = await this.#resolveCipherKeyOutcome(cipherId, peer);
     return outcome.kind === "key" ? outcome.value : undefined;
+  }
+
+  /**
+   * Fetch one original HomeBase's RSA candidates, sharing work between its cameras.
+   * The account-only shape used by v4 is tried first. The station-named shape is a fallback,
+   * because the cloud client serializes requests. Keys stay in memory and are never logged.
+   */
+  async #resolveOriginalHomeBaseKeys(cipherId: number, peer: MegaInventoryDevice): Promise<readonly string[]> {
+    const owner = peer.adminUserId;
+    if (!owner) return [];
+    const generation = this.#startupGeneration;
+    const cacheKey = JSON.stringify([generation, peer.serial, peer.p2pDid, owner, cipherId]);
+    const cached = this.#originalCipherKeys.get(cacheKey);
+    if (cached) return cached;
+    let pending = this.#originalCipherFlights.get(cacheKey);
+    if (!pending) {
+      pending = (async (): Promise<readonly string[]> => {
+        let answered = false;
+        for (const field of ["omitted", "sn"] as const) {
+          if (generation !== this.#startupGeneration) break;
+          let rows: readonly Record<string, unknown>[];
+          try {
+            rows = await this.#client.getCiphers([cipherId], owner, peer.serial, field);
+          } catch {
+
+            // The other request shape may still answer.
+            continue;
+          }
+          answered = true;
+          const keys = rows.flatMap((row) => (
+            Number(row.cipher_id) === cipherId && typeof row.private_key === "string" && row.private_key ? [row.private_key] : []
+          ));
+          if (keys.length > 0) {
+            if (generation === this.#startupGeneration) this.#originalCipherKeys.set(cacheKey, keys);
+            return keys;
+          }
+        }
+        if (!answered) throw new Error("Original HomeBase key lookup unavailable");
+        return [];
+      })();
+      this.#originalCipherFlights.set(cacheKey, pending);
+    }
+    try {
+      return await pending;
+    } finally {
+      if (this.#originalCipherFlights.get(cacheKey) === pending) this.#originalCipherFlights.delete(cacheKey);
+    }
   }
 
   /** Classify lookup ownership without returning arbitrary errors or sharing session failure phases. */
@@ -1655,6 +1704,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
     this.#cipherFlights.clear();
+    this.#originalCipherFlights.clear();
     this.#recordingClosing = false;
     const generation = ++this.#startupGeneration;
     for (const serial of this.#nvrSettings.keys()) this.#clearNvrSettings(serial);
@@ -3597,6 +3647,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
           accountId: device.adminUserId,
           homeBaseAttached: route.homeBaseAttached,
           cipherId: device.cipherId,
+          ...(peer.model === "T8001" || peer.model === "T8002" ? {
+            accountId: peer.adminUserId ?? device.adminUserId,
+            stationFirmware: peer.firmware,
+            resolveOriginalHomeBaseKeys: (cipherId: number) => this.#resolveOriginalHomeBaseKeys(cipherId, peer),
+          } : {}),
           experimentalT8420Live: this.config.experimentalT8420Live === true && this.config.apiAuthenticationConfigured === true,
           ...(this.config.experimentalT8420Live && this.config.apiAuthenticationConfigured
             ? { resolveCipherKeyOutcome: (cipherId: number) => this.#resolveCipherKeyOutcome(cipherId, peer) } : {}),
@@ -5426,7 +5481,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     for (const pending of this.#streamStarts.values()) pending.cancelled = true;
     this.#streamStarts.clear();
     this.#cipherFlights.clear();
+    this.#originalCipherFlights.clear();
     this.#cipherKeys.clear();
+    this.#originalCipherKeys.clear();
     for (const [peer, session] of this.#trialSessions) {
       if (!this.#trialSirenStops.has(peer)) session.close();
     }
@@ -5664,6 +5721,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
     this.#dskKeys.clear();
     this.#cipherKeys.clear();
+    this.#originalCipherKeys.clear();
     const peers = [...new Map(devices
       .filter((device) => (!device.parentSerial || device.parentSerial === device.serial) && device.p2pDid)
       .map((device) => [device.serial, device] as const)).values()];
@@ -8319,7 +8377,7 @@ export function isPpcsRouteReady(
 export function ppcsStreamLogSummary(
   model: string,
   route: PpcsStreamRoute | null,
-  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames" | "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartResult" | "mediaStartLowPower" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
+  stats: Pick<FirstPartyPpcsSession["stats"], "camId" | "dataDatagrams" | "frameHeaders" | "videoFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "audioFrames" | "audioClearFrames" | "audioAdtsFrames" | "audioProtectedFrames" | "foreignAudioFrames" | "alternateLookupCandidates" | "batteryHistory" | "closeReason" | "commands" | "directLookupCandidates" | "duplicateDatagrams" | "foreignVideoFrames" | "gatewayInfoAcknowledged" | "gatewayInfoRetransmitted" | "gatewayInfoExpired" | "frameShapes" | "incompleteAccessUnitBytes" | "incompleteAccessUnits" | "localLookupCandidates" | "mediaStartAttempts" | "mediaStartResult" | "mediaStartLowPower" | "mediaStartAcknowledged" | "mediaStartRetransmitted" | "mediaStartExpired" | "mediaStartProtocols" | "originalHomeBaseGatewaySign" | "originalHomeBaseKey" | "mediaStopAttempts" | "mediaStopProtocol" | "parserBlocked" | "parserResyncs" | "pendingBytes" | "sequenceGaps" | "sequenceRestarts" | "sequenceChannels" | "staleDatagrams" | "types" | "videoCodec" | "videoNalTypes" | "videoOutputFrames" | "videoResults">>,
   error?: unknown,
 ): string {
   const stage = stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first_frame" : "media";
@@ -8383,6 +8441,10 @@ export function ppcsStreamLogSummary(
     `audio_protected_frames=${stats.audioProtectedFrames ?? 0}`,
     `foreign_audio_frames=${stats.foreignAudioFrames ?? 0}`,
     `battery_history=${stats.batteryHistory ?? "not-reported"}`,
+    ...(stats.originalHomeBaseGatewaySign === undefined ? [] : [
+      `original_gateway_sign=${stats.originalHomeBaseGatewaySign}`,
+      `original_key=${stats.originalHomeBaseKey ?? "pending"}`,
+    ]),
     ...(stats.sequenceChannels === undefined ? [] : [`sequence_channels=${stats.sequenceChannels}`]),
     ...(error === undefined ? [] : [`error=${safeError(error)}`]),
   ].join(" ");

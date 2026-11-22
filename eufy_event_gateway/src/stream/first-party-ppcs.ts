@@ -48,12 +48,26 @@ import { decodePpcsAac } from "./ppcs-audio.js";
 import { ppcsCandidatePorts, ppcsLocalLookupTargets } from "./ppcs-lookup.js";
 import { PpcsLookupSocketPool } from "./ppcs-lookup-sockets.js";
 import { PpcsMediaStart } from "./ppcs-media-start.js";
+import {
+  buildOriginalHomeBaseStart, buildOriginalHomeBaseStop, decodeOriginalHomeBaseResult, originalHomeBaseStartCommand,
+  selectOriginalHomeBaseSeal, usesOriginalHomeBaseLive, type OriginalHomeBaseKeyReason, type OriginalHomeBaseSeal,
+} from "./original-homebase-live.js";
 import { decodeSensorContactNotification, decodeSensorMotionNotification, type SensorContactObservation, type SensorMotionObservation } from "./sensor-status-notification.js";
 
 // PPCS wraps command payloads in an XZYH header. The outer F1 D0 UDP envelope,
 // the inner D1 data channel, and the XZYH command frame have separate sequence
 // fields. Their numeric fields also use different byte orders.
 const MAGIC = Buffer.from("XZYH", "ascii");
+
+// An original HomeBase returns 503 when it could not accept a start request yet.
+const ORIGINAL_HOMEBASE_BUSY = 503;
+const ORIGINAL_HOMEBASE_START_RETRIES = 10;
+const ORIGINAL_HOMEBASE_RETRY_MILLISECONDS = 1000;
+const ORIGINAL_HOMEBASE_STOP_DRAIN_MILLISECONDS = 300;
+
+// The shared cloud client spaces requests three seconds apart. This leaves time for
+// two queued requests and still reserves half the first-frame deadline for the camera.
+const ORIGINAL_HOMEBASE_LOOKUP_MILLISECONDS = 10_000;
 
 // These request and response values are observed PPCS wire opcodes. Keeping
 // them grouped by direction avoids confusing identical values that have
@@ -373,12 +387,19 @@ export class PpcsDatagramReorderBuffer {
     private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
     private readonly onRepeat: (reason: "duplicate" | "stale") => void,
     private readonly videoRepairWaitMilliseconds: 250 | 1000 | 2000 = 250,
+    private readonly startsAtZero = false,
   ) {}
 
   /** Accept an acknowledged packet, retaining successors until missing data arrives or expires. */
   push(data: Buffer, sequence: number, type: number): void {
     if (this.#closed) return;
     let channel = this.#channels.get(type);
+    if (!channel && this.startsAtZero) {
+
+      // Seeding just before zero holds an early successor until the first datagram arrives.
+      channel = { last: 0xffff, held: new Map(), bytes: 0 };
+      this.#channels.set(type, channel);
+    }
     this.#recordArrival(type, sequence, channel?.last ?? null);
     if (!channel) {
       channel = { last: sequence, held: new Map(), bytes: 0 };
@@ -659,8 +680,16 @@ export class PpcsVideoFrameDecoder {
    * frames remain authenticated-only because they cannot carry the legacy
    * 128-byte encrypted prefix.
    */
-  decode(frame: Buffer, signCode: number): DecodedPpcsVideoFrame | undefined {
+  decode(frame: Buffer, signCode: number, legacyOnly = false): DecodedPpcsVideoFrame | undefined {
     this.#lastFailure = null;
+    if (legacyOnly) {
+
+      // Original HomeBases have no GCM media. Their signed frames under 128 bytes are clear.
+      const result = decodeLegacyPpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
+      this.#lastFailure = result.failure ?? null;
+      const clear = signCode <= 0 || frame.readUInt32LE(0) < 128;
+      return result.data ? { data: result.data, protection: clear ? "clear" : "rsa-ecb" } : undefined;
+    }
     if (signCode <= 0) {
       const result = decodeLegacyPpcsVideoFrame(frame, signCode, this.unwrapLegacyKey);
       this.#lastFailure = result.failure ?? null;
@@ -1462,6 +1491,12 @@ export interface PpcsCameraOptions {
   /** Parent peer model used only where HomeBase generations have different media lifecycle commands. */
   readonly stationModel?: string;
 
+  /** Parent firmware, used only to choose an original HomeBase's start generation. */
+  readonly stationFirmware?: string | null;
+
+  /** Resolve RSA candidates for an original HomeBase. Failure selects its derived command key. */
+  readonly resolveOriginalHomeBaseKeys?: (cipherId: number) => Promise<readonly string[]>;
+
   /** Exact parent type required by attached live-session quality control. */
   readonly stationDeviceType?: number | null;
 
@@ -1789,9 +1824,14 @@ export class FirstPartyPpcsSession {
     mediaStartResult: null as number | null,
     mediaStartRetransmitted: 0,
     mediaStartExpired: 0,
-    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear" | "t8420-clear")[],
+    mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear" | "t8420-clear"
+      | "original-1003-clear" | "original-1350-clear" | "original-1350-level1" | "original-1350-rsa")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload" | "clear-direct",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload" | "clear-direct" | "rsa-direct",
+
+    /** Original HomeBase negotiation outcome. Neither field contains key material. */
+    originalHomeBaseKey: undefined as OriginalHomeBaseKeyReason | undefined,
+    originalHomeBaseGatewaySign: undefined as number | undefined,
     closeReason: "open" as PpcsStreamCloseReason | "open",
   };
   readonly #options: PpcsCameraOptions;
@@ -1821,6 +1861,16 @@ export class FirstPartyPpcsSession {
   #t8200MediaStartSent = false;
   #t8420ClearEligible = false;
   #t8420ClearSent = false;
+  readonly #originalHomeBase: boolean;
+  #originalSeal: OriginalHomeBaseSeal | null = null;
+  #originalStart: { readonly command: 1003 | 1350; readonly payload: Buffer; retries: number } | null = null;
+  #originalNegotiating = false;
+  #originalLookupTimer: ReturnType<typeof setTimeout> | null = null;
+  #originalRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  #originalVideoBegun = false;
+  #originalStopRepeats: ReturnType<typeof setTimeout>[] = [];
+  #lastPingReplyAt = Number.NEGATIVE_INFINITY;
+  readonly #pingReply: PpcsMediaStart;
   #maximumDurationTimer: ReturnType<typeof setTimeout> | null = null;
   #firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingByType = new Map<number, PendingPpcsFrame>();
@@ -1948,13 +1998,16 @@ export class FirstPartyPpcsSession {
         if (reason === "duplicate") this.stats.duplicateDatagrams++;
         else this.stats.staleDatagrams++;
       },
-      usesT8171AttachedMediaProfile(options.channel, options)
+      usesOriginalHomeBaseLive(options) || usesT8171AttachedMediaProfile(options.channel, options)
         && options.purpose !== "control" && options.purpose !== "passive" ? 2000 : 250,
+      usesOriginalHomeBaseLive(options),
     );
     const transmitStartup = (packet: Buffer): void => {
       if (!this.#closed && this.#remote) this.#socket.send(packet, this.#remote.port, this.#remote.host);
     };
-    this.#mediaStart = new PpcsMediaStart(transmitStartup);
+    this.#mediaStart = new PpcsMediaStart(transmitStartup, undefined,
+      usesOriginalHomeBaseLive(options) ? FIRST_VIDEO_FRAME_TIMEOUT_MILLISECONDS : undefined);
+    this.#pingReply = new PpcsMediaStart(transmitStartup);
     this.#gatewayInfoRequest = new PpcsMediaStart(transmitStartup);
     for (const [field, counter] of [
       ["mediaStartAcknowledged", "acknowledged"],
@@ -1970,12 +2023,14 @@ export class FirstPartyPpcsSession {
     ] as const) {
       Object.defineProperty(this.stats, field, { enumerable: true, get: () => this.#gatewayInfoRequest.stats[counter] });
     }
+    this.#originalHomeBase = usesOriginalHomeBaseLive(options);
     this.#videoAssembler = new PpcsAccessUnitAssembler((drop) => {
       this.stats.incompleteAccessUnits++;
       this.stats.incompleteAccessUnitBytes += drop.carriedBytes;
       this.#recordVideoResult("incomplete-access-unit-dropped");
     }, {
-      emitChunks: options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control" && options.purpose !== "passive",
+      // Original HomeBases send an Annex-B byte stream whose chunks need not be 64,000 bytes.
+      emitChunks: this.#originalHomeBase || options.cameraModel === "T8200" && options.homeBaseAttached !== true && options.purpose !== "control" && options.purpose !== "passive",
     });
 
     // Capture the session rather than the stats object's receiver. Failure
@@ -2072,6 +2127,14 @@ export class FirstPartyPpcsSession {
         // The official app keeps this exact attached route alive with a
         // station-channel nudge while child-channel media continues flowing.
         this.#sendCommand(1139, voidPayload(255));
+      }
+      if (this.#originalHomeBase) {
+
+        // v4 never restarts this encoder in place. End a stalled source after the
+        // reassert and recovery windows that newer attached routes receive.
+        if (this.#lastDeliveredMediaFrameAt !== null
+          && Date.now() - this.#lastDeliveredMediaFrameAt >= ATTACHED_MEDIA_STALL_MILLISECONDS * 2) this.close("media_stall");
+        return;
       }
       if (this.#options.homeBaseAttached && this.#level2Key) {
 
@@ -3283,6 +3346,9 @@ export class FirstPartyPpcsSession {
   close(reason: PpcsStreamCloseReason = "client_stop"): void {
     if (this.#closed) return;
     this.#mediaStart.close();
+    this.#pingReply.close();
+    if (this.#originalLookupTimer) clearTimeout(this.#originalLookupTimer);
+    if (this.#originalRetryTimer) clearTimeout(this.#originalRetryTimer);
     this.#gatewayInfoRequest.close();
     this.#attachedQuality.close();
     this.#speaker?.close();
@@ -3332,7 +3398,8 @@ export class FirstPartyPpcsSession {
     this.#pendingByType.clear();
     this.#updatePendingBytes();
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
-      this.#stopAttachedMedia();
+      if (this.#originalHomeBase) this.#stopOriginalHomeBaseMedia();
+      else this.#stopAttachedMedia();
     }
     if (this.#t8420ClearSent && !this.#level2Key) {
 
@@ -3348,6 +3415,7 @@ export class FirstPartyPpcsSession {
         if (finished) return;
         finished = true;
         if (deadline) clearTimeout(deadline);
+        for (const repeat of this.#originalStopRepeats) clearTimeout(repeat);
         try {
           if (this.#lookupSockets) this.#lookupSockets.close();
           else this.#socket.close();
@@ -3361,10 +3429,17 @@ export class FirstPartyPpcsSession {
 
       // dgram.close discards queued sends. Completing the final END send also
       // drains the preceding stop command, without claiming a peer acknowledgement.
+      const remote = this.#remote;
+      const sendEnd = (): void => {
+        try { this.#socket.send(Buffer.concat([REQ.end, u16(0)]), remote.port, remote.host, finish); }
+        catch { finish(); }
+      };
       deadline = setTimeout(finish, 500);
       deadline.unref?.();
-      try { this.#socket.send(Buffer.concat([REQ.end, u16(0)]), this.#remote.port, this.#remote.host, finish); }
-      catch { finish(); }
+
+      // An original HomeBase's repeated stop needs a short drain before its peer is ended.
+      if (this.#originalStopRepeats.length > 0) setTimeout(sendEnd, ORIGINAL_HOMEBASE_STOP_DRAIN_MILLISECONDS);
+      else sendEnd();
     });
     this.output.end();
     this.audioOutput.end();
@@ -3455,7 +3530,7 @@ export class FirstPartyPpcsSession {
       // The selected peer also probes our side of the connection. Answer only
       // its observed empty heartbeat, without resetting media or its deadlines.
       if (this.#remote?.host === info.address && this.#remote.port === info.port
-        && message.length === 4 && message.readUInt16BE(2) === 0) {
+        && (this.#originalHomeBase || message.length === 4 && message.readUInt16BE(2) === 0)) {
         this.#send(REQ.pong, Buffer.alloc(0), this.#remote);
       }
       return false;
@@ -3469,6 +3544,7 @@ export class FirstPartyPpcsSession {
         for (let index = 0; index < count; index++) {
           const sequence = message.readUInt16BE(8 + index * 2);
           this.#mediaStart.acknowledge(sequence);
+          this.#pingReply.acknowledge(sequence);
           this.#gatewayInfoRequest.acknowledge(sequence);
           this.#pendingControlQuery?.trace?.acknowledge(sequence);
           this.#lockStatus?.trace.acknowledge(sequence);
@@ -3488,7 +3564,8 @@ export class FirstPartyPpcsSession {
 
       // This opt-in trial answers account-bound device requests. Only the
       // selected peer may contribute frames to that request's reassembly.
-      if (this.#options.experimentalT8420Live === true && this.#options.cameraModel === "T8420"
+      if ((this.#originalHomeBase
+        || this.#options.experimentalT8420Live === true && this.#options.cameraModel === "T8420")
         && (info.address !== this.#remote.host || info.port !== this.#remote.port)) return false;
       this.stats.dataDatagrams++;
       if (!this.stats.firstDataHex) this.stats.firstDataHex = message.subarray(0, Math.min(message.length, 48)).toString("hex");
@@ -3599,6 +3676,8 @@ export class FirstPartyPpcsSession {
     if (!this.stats.frameShapes.includes(shape) && this.stats.frameShapes.length < 20) {
       this.stats.frameShapes.push(shape);
     }
+
+    if (this.#originalHomeBase && this.#handleOriginalHomeBaseFrame(header, payload, type)) return;
 
     // The original standalone T8420 asks for this account-bound response during
     // setup. Keep it inside the existing opt-in route and the observed channel
@@ -3872,7 +3951,7 @@ export class FirstPartyPpcsSession {
     }
     let decoded: DecodedPpcsVideoFrame | undefined;
     const units = this.#videoAssembler.push(frame, (payload) => {
-      decoded = this.#videoDecoder.decode(payload, signCode);
+      decoded = this.#videoDecoder.decode(payload, signCode, this.#originalHomeBase);
       return decoded?.data;
     });
     if (!decoded?.data.length) {
@@ -3882,6 +3961,15 @@ export class FirstPartyPpcsSession {
     }
     let wrote = false;
     for (const unit of units) {
+      if (this.#originalHomeBase && !this.#originalVideoBegun) {
+
+        // Joining mid-NAL must not select length-prefixed framing for the whole session.
+        if (!beginsWithAnnexB(unit.data)) {
+          this.#recordVideoResult("awaiting-start-code");
+          continue;
+        }
+        this.#originalVideoBegun = true;
+      }
       const declaredCodec = ppcsVideoCodec(unit.streamType);
       const normalized = this.#videoNormalizer.push(unit.data, declaredCodec ?? undefined);
       this.stats.videoCodec = this.#videoNormalizer.codec;
@@ -4316,6 +4404,125 @@ export class FirstPartyPpcsSession {
     }
   }
 
+  /**
+   * Consume setup, ping and start-result frames that differ on an original HomeBase.
+   * Media and notifications return false so the ordinary handlers retain ownership.
+   */
+  #handleOriginalHomeBaseFrame(header: Buffer, payload: Buffer, type: number): boolean {
+    const command = header.readUInt16LE(4);
+    const signCode = header[13] ?? 0;
+    if (command === 1100) {
+
+      // Only CONTROL carries gateway info. A DATA frame with this command is a result.
+      // Sign zero is clear, and sign one uses the derived level-one key.
+      if (type !== 2 || signCode > 1 || payload.length < 4 || signCode === 1 && payload.length % 16 !== 0) return true;
+      this.#gatewayInfoRequest.close();
+      this.stats.gatewayInfo++;
+      if (!this.#originalNegotiating) {
+        this.#originalNegotiating = true;
+        this.stats.originalHomeBaseGatewaySign = signCode;
+        this.#startOriginalHomeBaseMedia(Buffer.from(payload), signCode).catch(() => {
+
+          // Malformed inventory or key facts must fail this camera, not the gateway process.
+          this.stats.level2Error = "Original HomeBase live start could not be built";
+          this.close("start_failed");
+        });
+      }
+      return true;
+    }
+    if (command === 1152 && type === 2) {
+      const now = Date.now();
+
+      // One tracked echo per second repairs loss without amplifying repeated or forged pings.
+      if (this.#remote && !this.#pingReply.pending && now - this.#lastPingReplyAt >= 1000) {
+        this.#lastPingReplyAt = now;
+        const sequence = this.#seq++ & 0xffff;
+        const body = Buffer.concat([DATA.data, u16(sequence), MAGIC, u16le(1152), voidPayload(header[12] ?? 255)]);
+        this.#pingReply.start(sequence, Buffer.concat([REQ.data, u16(body.length), body]));
+      }
+      return true;
+    }
+    const start = this.#originalStart;
+    const seal = this.#originalSeal;
+    if (!start || !seal || type !== 0 || header[14] !== 1 || command !== start.command) return false;
+    const result = decodeOriginalHomeBaseResult(payload, signCode, seal);
+    if (result === null) return true;
+    this.stats.mediaStartResult = result;
+
+    // v4 repeats this one explicit busy result with a fresh sequence. Spacing the bounded
+    // attempts gives another camera's stream time to stop.
+    if (result === ORIGINAL_HOMEBASE_BUSY && !this.#originalRetryTimer
+      && start.retries < ORIGINAL_HOMEBASE_START_RETRIES && this.stats.videoFrames === 0) {
+      this.#mediaStart.mediaReceived();
+      this.#originalRetryTimer = setTimeout(() => {
+        this.#originalRetryTimer = null;
+        if (this.#closed || this.stats.videoFrames > 0) return;
+        start.retries++;
+        this.stats.mediaStartAttempts++;
+        this.#sendCommand(start.command, start.payload, true);
+      }, ORIGINAL_HOMEBASE_RETRY_MILLISECONDS);
+    }
+    return true;
+  }
+
+  /** Select the older command key, then send one firmware-selected media start. */
+  async #startOriginalHomeBaseMedia(payload: Buffer, signCode: number): Promise<void> {
+    const derived = commandKey(this.#options.stationSerial, this.#options.p2pDid);
+    let info = payload;
+    if (signCode === 1) {
+      try {
+        info = decryptEcb(payload, derived);
+      } catch {
+        this.stats.level2Error = "Original HomeBase gateway information could not be decoded";
+        return;
+      }
+    }
+    const cipherId = info.readUInt16LE(0);
+    this.stats.cipherId = cipherId;
+    const resolveKeys = this.#options.resolveOriginalHomeBaseKeys;
+    const keys = resolveKeys ? await new Promise<readonly string[] | null>((resolve) => {
+      this.#originalLookupTimer = setTimeout(() => resolve(null), ORIGINAL_HOMEBASE_LOOKUP_MILLISECONDS);
+
+      // Lookup failure is recoverable here because the derived key needs no cloud request.
+      void resolveKeys(cipherId).then(resolve, () => resolve(null));
+    }) : null;
+    if (this.#originalLookupTimer) clearTimeout(this.#originalLookupTimer);
+    if (this.#closed) return;
+    const seal = selectOriginalHomeBaseSeal(info, keys, derived);
+    const command = originalHomeBaseStartCommand(this.#options.stationFirmware);
+    const body = buildOriginalHomeBaseStart(command, this.#options.channel, this.#options.accountId ?? "",
+      publicModulus(this.#rsa.publicKey), seal);
+    this.#originalSeal = seal;
+    this.#originalStart = { command, payload: body, retries: 0 };
+    this.stats.originalHomeBaseKey = seal.reason;
+    this.stats.mediaStartAttempts++;
+    this.stats.mediaStartProtocols.push(command === 1003 ? "original-1003-clear"
+      : seal.signCode === 2 ? "original-1350-rsa" : seal.signCode === 1 ? "original-1350-level1" : "original-1350-clear");
+    this.#sendCommand(command, body, true);
+  }
+
+  /** Stop only a channel this original-HomeBase session started. */
+  #stopOriginalHomeBaseMedia(): void {
+    this.#mediaStart.stop();
+    const seal = this.#originalSeal;
+    if (!this.#remote || !seal) return;
+    this.stats.mediaStopAttempts++;
+    this.stats.mediaStopProtocol = seal.signCode === 2 ? "rsa-direct" : seal.signCode === 1 ? "level1-direct" : "clear-direct";
+    const body = buildOriginalHomeBaseStop(this.#options.channel, seal);
+    const packet = Buffer.concat([DATA.data, u16(this.#seq++ & 0xffff), MAGIC, u16le(1004), body]);
+    const remote = this.#remote;
+    const transmit = (): void => {
+      try {
+        this.#send(REQ.data, packet, remote);
+      } catch {
+
+        // A failed stop must not interrupt socket, timer and output cleanup.
+      }
+    };
+    transmit();
+    this.#originalStopRepeats = [100, 200].map((milliseconds) => setTimeout(transmit, milliseconds));
+  }
+
   /** Start an attached channel, or restart it after output has genuinely stalled. */
   #startAttachedMedia(): void {
     if (!this.#remote || !this.#level2Key) return;
@@ -4470,7 +4677,7 @@ export class FirstPartyPpcsSession {
   #sendCommand(command: number, payload: Buffer, mediaStart = false): void {
     if (this.#alarmRead && (command !== 1103 || !this.#alarmRead.dispatched)) throw new Error("Alarm state read owns this session");
     if (!this.#remote) return;
-    const header = Buffer.concat([DATA.data, u16(this.#seq++), MAGIC, u16le(command)]);
+    const header = Buffer.concat([DATA.data, u16(this.#seq++ & 0xffff), MAGIC, u16le(command)]);
     if (mediaStart) this.#sendMediaStart(Buffer.concat([header, payload]));
     else this.#send(REQ.data, Buffer.concat([header, payload]), this.#remote);
   }
