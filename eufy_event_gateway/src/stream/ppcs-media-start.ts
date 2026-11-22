@@ -50,6 +50,7 @@ export class PpcsMediaStart {
   constructor(
     private readonly transmit: (packet: Buffer) => void,
     private readonly clock: PpcsMediaStartScheduler = scheduler,
+    private readonly lifetimeMilliseconds = 3000,
   ) {}
 
   /** Report whether either original startup datagram still needs delivery repair. */
@@ -65,7 +66,7 @@ export class PpcsMediaStart {
       throw new RangeError("Invalid PPCS media-start datagram");
     }
     if (this.#current) this.#displaced = this.#current;
-    const entry = { sequence, packet: Buffer.from(packet), deadline: this.clock.now() + 3000 };
+    const entry = { sequence, packet: Buffer.from(packet), deadline: this.clock.now() + this.lifetimeMilliseconds };
     this.#current = entry;
     this.#cancelTimer ??= this.clock.repeat(() => this.#retry(), 150);
     this.transmit(entry.packet);

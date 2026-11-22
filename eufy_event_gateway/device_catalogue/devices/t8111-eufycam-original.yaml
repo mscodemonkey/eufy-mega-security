@@ -95,6 +95,11 @@ capabilities:
   media:
     live_view:
       connections:
+        T8001:
+          status: reported
+          tested_on: 2026-11-21
+          tested_by: chrishultin
+          notes: Live video is reported working with the older RSA or derived-key route. Which key and start form that HomeBase used, fresh snapshots, simultaneous cameras and sustained viewing are unconfirmed.
         T8010:
           status: declared
         T8030:
