@@ -10,6 +10,7 @@
  * stream plus safe counters, so the rest of the gateway never handles PPCS
  * packet layout or camera encryption directly.
  */
+import { PpcsReceiveTimeline, type PpcsReceiveObservation } from "./ppcs-receive-timeline.js";
 import { PpcsQueryTrace, type PpcsControlDecodeOutcome } from "./ppcs-query-trace.js";
 import { mergeReplyProtection, PpcsControlReceiptTrace, type PpcsControlReceiptEvidence, type PpcsReplyProtection } from "./ppcs-reply-evidence.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
@@ -385,7 +386,7 @@ export class PpcsDatagramReorderBuffer {
    * source-qualified media route. Control channels always retain 250 ms.
    */
   constructor(
-    private readonly deliver: (data: Buffer, type: number) => void,
+    private readonly deliver: (data: Buffer, type: number, sequence: number) => void,
     private readonly onSkip: (type: number, reason: "gap" | "restart") => void,
     private readonly onRepeat: (reason: "duplicate" | "stale") => void,
     private readonly videoRepairWaitMilliseconds: 250 | 1000 | 2000 = 250,
@@ -516,7 +517,7 @@ export class PpcsDatagramReorderBuffer {
       evidence.acceptedLast = sequence;
       evidence.acceptedCount++;
     }
-    this.deliver(data, type);
+    this.deliver(data, type, sequence);
   }
 
   #clearTimer(channel: PpcsReorderChannel): void {
@@ -1770,6 +1771,9 @@ export class FirstPartyPpcsSession {
     localLookupCandidates: 0,
     directLookupCandidates: 0,
     alternateLookupCandidates: 0,
+
+    /** Detached source-local observations, enabled only for exact standalone S330 media. */
+    receiveTimeline: undefined as readonly PpcsReceiveObservation[] | undefined,
     dataDatagrams: 0,
     frameHeaders: 0,
     gatewayInfo: 0,
@@ -1886,6 +1890,7 @@ export class FirstPartyPpcsSession {
   // PPCS sequences are independent for each inner data type. Combining them
   // would manufacture false gaps when command and video datagrams interleave.
   readonly #datagramOrder: PpcsDatagramReorderBuffer;
+  readonly #receiveTimeline: PpcsReceiveTimeline;
   readonly #videoNormalizer = new PpcsVideoStreamNormalizer();
   readonly #videoAssembler: PpcsAccessUnitAssembler;
   readonly #videoClockEpoch = Symbol();
@@ -1994,9 +1999,18 @@ export class FirstPartyPpcsSession {
       throw new RangeError("Invalid PPCS lookup deadline");
     }
     this.#options = options;
+    const receiveTimeline = options.cameraModel === "T86P2" && options.cameraDeviceType === 111
+      && options.homeBaseAttached !== true && (options.purpose ?? "media") === "media";
+    this.#receiveTimeline = new PpcsReceiveTimeline(receiveTimeline);
+    Object.defineProperty(this.stats, "receiveTimeline", { enumerable: true,
+      get: () => receiveTimeline ? this.#receiveTimeline.snapshot() : undefined });
     this.#datagramOrder = new PpcsDatagramReorderBuffer(
-      (data, type) => this.#consumeData(data, type),
+      (data, type, sequence) => {
+        this.#receiveTimeline.record("ordered", type, data.length, { sequence });
+        this.#consumeData(data, type);
+      },
       (type, reason) => {
+        this.#receiveTimeline.record(reason, type, this.#pendingByType.get(type)?.payload.length ?? 0);
         if (reason === "restart") this.stats.sequenceRestarts++;
         else this.stats.sequenceGaps++;
         this.#pendingByType.delete(type);
@@ -3410,6 +3424,7 @@ export class FirstPartyPpcsSession {
     this.#videoAssembler.reset();
     this.#closedSequenceChannels = this.#datagramOrder.diagnostics();
     this.#datagramOrder.close();
+    this.#receiveTimeline.close();
     this.#pendingByType.clear();
     this.#updatePendingBytes();
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive" && this.#options.homeBaseAttached) {
@@ -3588,6 +3603,8 @@ export class FirstPartyPpcsSession {
       if (!this.stats.types.includes(type[1] ?? -1)) this.stats.types.push(type[1] ?? -1);
       this.#send(REQ.ack, Buffer.concat([type, u16(1), u16(seq)]), this.#remote);
       const dataType = type[1] ?? 0;
+      this.#receiveTimeline.record("arrival", dataType, message.length - 8, { sequence: seq,
+        samePeer: info.address === this.#remote.host && info.port === this.#remote.port });
       if (type.equals(DATA.video) || type.equals(DATA.data) || dataType === 2 ||
         (dataType === 3 && this.#recordings?.downloading)) this.#datagramOrder.push(message.subarray(8), seq, dataType);
     }
@@ -3653,6 +3670,7 @@ export class FirstPartyPpcsSession {
       const offset = ppcsCommandMagicOffset(body);
       if (offset > 0 && !resynced) {
         this.stats.parserResyncs++;
+        this.#receiveTimeline.record("resync", type, offset);
         resynced = true;
         body = body.subarray(offset);
         continue;
@@ -3662,6 +3680,7 @@ export class FirstPartyPpcsSession {
       else {
         this.stats.parserBlocked = true;
         this.stats.parserResyncs++;
+        this.#receiveTimeline.record("resync", type, body.length);
       }
       break;
     }
@@ -3687,6 +3706,7 @@ export class FirstPartyPpcsSession {
     const frameChannel = ppcsFrameChannel(header);
     const signCode = header[13] ?? 0;
     this.stats.frameHeaders++;
+    this.#receiveTimeline.record("frame", type, size, { command });
     const shape = `${command}:${signCode}:${size}:${type}`;
     if (!this.stats.frameShapes.includes(shape) && this.stats.frameShapes.length < 20) {
       this.stats.frameShapes.push(shape);

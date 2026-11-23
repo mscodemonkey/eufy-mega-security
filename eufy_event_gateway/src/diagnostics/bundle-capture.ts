@@ -4,6 +4,7 @@
  * HTTP export consumes projected metadata and explicitly consented native media;
  * credentials, vendor payloads and arbitrary error/log text never enter here.
  */
+import { projectPpcsReceiveObservation } from "../stream/ppcs-receive-timeline.js";
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import type { GatewayState } from "../domain/gateway-state.js";
@@ -69,6 +70,7 @@ export class BundleCapture {
   readonly #started: number;
   readonly #ids = new Map<string, string>();
   readonly #sourceAttempts = new Map<string, Map<number, number>>();
+  readonly #receiveOrdinals = new Map<string, Map<number, number>>();
   readonly #selected = new Set<string>();
   readonly #records: RecordEntry[] = [];
   readonly #media: MediaEntry[] = [];
@@ -207,6 +209,36 @@ export class BundleCapture {
       code: diagnostic.stage === "lookup" || diagnostic.stage === "first-frame" ? diagnostic.stage : "media", counters,
       ...(sourceAttempt !== undefined ? { sourceAttempt } : {}), ...(startupBoundary ? { startupBoundary } : {}),
       ...(diagnostic.frameKinds ? { frameKinds } : {}) });
+    if (sourceAttempt !== undefined) this.#receive(serial, sourceAttempt, diagnostic.receiveTimeline);
+  }
+
+  /** Count each projected receive observation against the existing capture record budget. */
+  #receive(serial: string, sourceAttempt: number, values: StreamDiagnostic["receiveTimeline"]): void {
+    if (!Array.isArray(values)) return;
+    let ordinals = this.#receiveOrdinals.get(serial);
+    if (!ordinals) { ordinals = new Map(); this.#receiveOrdinals.set(serial, ordinals); }
+    let previous = ordinals.get(sourceAttempt) ?? 0;
+    const append = (event: string, code: string, counters: Record<string, number>): boolean => {
+      if (!this.#accepting()) return false;
+      if (this.#records.length + this.#media.length >= MAX_RECORDS) {
+        this.#dropped++; this.stop("record_limit"); return false;
+      }
+      this.#records.push({ offsetMs: this.#elapsed(), event, device: this.#id(serial), sourceAttempt, code, counters });
+      return true;
+    };
+    for (const value of values.slice(-256)) {
+      const row = projectPpcsReceiveObservation(value);
+      if (!row || row.ordinal <= previous) continue;
+      if (row.ordinal > previous + 1 && !append("source-receive-gap", "observations_omitted",
+        { omitted: row.ordinal - previous - 1 })) return;
+      const counters = { ordinal: row.ordinal, sourceElapsedMs: row.elapsedMs, transportType: row.transportType,
+        bytes: row.bytes, ...(row.sequence === undefined ? {} : { sequence: row.sequence }),
+        ...(row.command === undefined ? {} : { command: row.command }),
+        ...(row.samePeer === undefined ? {} : { samePeer: Number(row.samePeer) }) };
+      if (!append("source-receive", row.kind, counters)) return;
+      previous = row.ordinal;
+      ordinals.set(sourceAttempt, previous);
+    }
   }
 
   /** Copy native media only during a consented session, before viewer conversion. */
@@ -232,7 +264,7 @@ export class BundleCapture {
     for (const sample of this.#media) sample.data.fill(0);
     this.#media.length = 0;
     this.#records.length = 0;
-    this.#ids.clear(); this.#sourceAttempts.clear();
+    this.#ids.clear(); this.#sourceAttempts.clear(); this.#receiveOrdinals.clear();
     this.#selected.clear();
     this.#bytes = 0;
     this.#state = reason;

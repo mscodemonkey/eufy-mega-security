@@ -3,6 +3,7 @@
  * EufyProvider owns the source and its transient identity. Private bundle capture
  * consumes the projection; peer addresses, payloads and key bytes stay excluded.
  */
+import { projectPpcsReceiveObservation } from "../stream/ppcs-receive-timeline.js";
 import type { StreamDiagnostic, StreamFrameKind, StreamStartupBoundary } from "../domain/types.js";
 import type { FirstPartyPpcsSession } from "../stream/first-party-ppcs.js";
 
@@ -12,7 +13,7 @@ type SourceStats = Pick<FirstPartyPpcsSession["stats"], "camId" | "gatewayInfo" 
   | "dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames" | "sequenceGaps" | "sequenceRestarts"
   | "duplicateDatagrams" | "staleDatagrams" | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits"
   | "incompleteAccessUnitBytes" | "frameShapes" | "audioFrames" | "audioClearFrames" | "audioAdtsFrames"
-  | "audioProtectedFrames" | "foreignAudioFrames">;
+  | "audioProtectedFrames" | "foreignAudioFrames"> & Partial<Pick<FirstPartyPpcsSession["stats"], "receiveTimeline">>;
 
 /**
  * Snapshot the observed source boundary and complete frame kinds without copying raw stats.
@@ -58,5 +59,7 @@ export function ppcsSourceDiagnostic(stats: SourceStats, sourceAttempt: number):
   }
   return { stage: stats.camId === 0 ? "lookup" : stats.videoFrames === 0 ? "first-frame" : "media",
     ...(Number.isSafeInteger(sourceAttempt) && sourceAttempt > 0 ? { sourceAttempt } : {}),
-    startupBoundary, frameKinds, counters };
+    startupBoundary, frameKinds, counters,
+    ...(stats.receiveTimeline ? { receiveTimeline: stats.receiveTimeline.slice(-256)
+      .map(projectPpcsReceiveObservation).filter(value => value !== null) } : {}) };
 }

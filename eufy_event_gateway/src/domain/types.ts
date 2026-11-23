@@ -8,6 +8,8 @@
  * shape; changing such a field means changing the public gateway API.
  */
 
+import type { PpcsReceiveObservation } from "../stream/ppcs-receive-timeline.js";
+
 /** Connection states reported by the provider and health endpoint. */
 export type ConnectionState =
   | "starting"
@@ -878,6 +880,9 @@ export interface StreamDiagnostic {
   readonly sourceAttempt?: number;
   readonly startupBoundary?: StreamStartupBoundary;
   readonly frameKinds?: readonly StreamFrameKind[];
+
+  /** Exact S330 source-local observations, sampled through the consented private capture. */
+  readonly receiveTimeline?: readonly PpcsReceiveObservation[];
   readonly counters: Readonly<Record<"dataDatagrams" | "frameHeaders" | "videoFrames" | "videoOutputFrames"
     | "sequenceGaps" | "sequenceRestarts" | "duplicateDatagrams" | "staleDatagrams"
     | "parserResyncs" | "pendingBytes" | "incompleteAccessUnits" | "incompleteAccessUnitBytes", number>>
