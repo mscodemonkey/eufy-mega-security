@@ -337,6 +337,13 @@ For an S340 (T8170, type 48) attached to HomeBase 3, select the camera in the
 gateway Diagnostics page and open **Read-only state check**. Leave **Separate
 parameter API** selected, consent to the read and choose **Run once**.
 
+Home Assistant app installs keep the gateway token private. If the page asks
+for a token, use the [Home Assistant terminal method](REPORTED_PARAMETER_CHECK.md#home-assistant-terminal-method)
+instead. Download both helpers from the installed release, list devices, then
+run `state-check --target-index INDEX --consent-read` with one S340's current
+index. The helper uses the saved integration connection without printing its
+token. Do not extract or share the token.
+
 This checks whether a second Eufy data source supplies the missing view-mode
 candidate. It does not change the lens layout or quality, and it does not enable
 controls. Share only the `reported_parameter_check model=T8170` log line.
