@@ -418,3 +418,23 @@ Integration playback diagnostics include `hls_activity` with installation status
 request count, quiet seconds and expiry state. These counters contain no tokens,
 URLs or viewer identities and do not count people watching. Local/synthetic
 validation does not establish the reporter's physical HomeBase handoff.
+
+## S330 video receive timeline
+
+For standalone 4G LTE Cam S330 T86P2, type 111, the existing private capture
+also retains a short structural timeline of received packets, ordered delivery,
+framing recovery and complete frames. It contains sequence numbers and lengths,
+not packet contents, peer addresses, account details or keys. The view's source
+is numbered separately within each capture.
+
+The timeline keeps only its latest 256 observations between samples. Omitted
+observations are marked explicitly in the bundle and cannot establish that no
+traffic arrived. Each exported observation counts against the normal capture
+record limit. This observation does not change reception, retries, decoding,
+settings or recording quality, and does not itself repair corrupted video.
+
+If asked to collect this evidence, select the affected S330 and use the existing
+30-second private capture with media while opening one ordinary view. Keep the
+same account, connection and camera settings. Send the file privately using the
+usual instructions. No raw packet capture, key or extra camera operation is
+needed.
