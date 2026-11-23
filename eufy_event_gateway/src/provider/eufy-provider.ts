@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { panTiltDevice, type PanTiltDevice } from "./pan-tilt-registry.js";
 import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
@@ -3993,6 +3994,13 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       && before.p2pConnection === after.p2pConnection && before.cipherId === after.cipherId;
   }
 
+  /** Inventory identity in this provider lifetime; account, endpoint and session checks stay with the operation. */
+  #inventoryRouteCurrent(device: MegaInventoryDevice, peer: MegaInventoryDevice, generation: number): boolean {
+    const child = this.#devices.get(device.serial), parent = this.#devices.get(peer.serial);
+    return generation === this.#startupGeneration && !!child && !!parent
+      && !inventoryBindingChanged(device, child) && !inventoryBindingChanged(peer, parent);
+  }
+
   /** Retain complete E21 media routes for the current account; preference writes check ownership separately. */
   #observeE21Inventory(devices: readonly MegaInventoryDevice[], generation: number, sequence: number): void {
     this.#e21Inventory.clear();
@@ -5160,8 +5168,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const release = this.#reserveTrialPeer(peer.serial);
     const current = (): void => {
       const fresh = this.#devices.get(serial), parent = this.#devices.get(peer.serial);
-      if (signal.aborted || this.#recordingClosing || generation !== this.#startupGeneration || !account?.()
-        || !fresh || !parent || inventoryBindingChanged(device, fresh) || inventoryBindingChanged(peer, parent)
+      if (signal.aborted || this.#recordingClosing || !account?.()
+        || !fresh || !parent || !this.#inventoryRouteCurrent(device, peer, generation)
         || fresh.memberUserId !== device.memberUserId || fresh.memberType !== device.memberType
         || parent.memberUserId !== peer.memberUserId || parent.memberType !== peer.memberType
         || this.#ppcsStreams.get(serial) !== session || !session.attachedQualityReady || !this.#attachedQualityAdmitted(fresh)) {
@@ -6272,6 +6280,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (device && isE21(device)) throw new E21ControlError("admission");
   }
 
+  /** Admission is current permission to execute, independent of controller selection. */
+  #panTiltAdmitted(device: MegaInventoryDevice, Controller: PanTiltDevice): boolean {
+    const controlsEnabled = !this.#recordingClosing && this.config.experimentalModelControls === true
+      && this.config.apiAuthenticationConfigured === true;
+    const accountAllowed = !!device.adminUserId && this.#client.isAuthenticated
+      && (!Controller.requiresOwnerAccount || this.#client.isAuthenticatedUser(device.adminUserId));
+    const routeReady = isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()));
+    if (!controlsEnabled || !accountAllowed || !routeReady) return false;
+    const route = ppcsStreamRoute(device, this.#devices);
+    return route?.homeBaseAttached !== true || ![...this.#devices.values()].some(other =>
+      other.serial !== device.serial && other.serial !== route.peer.serial
+      && other.parentSerial === route.peer.serial && other.channel === device.channel);
+  }
+
   /** Require opt-in, API authentication and the current owner's exact direct C37 route. */
   #c37ControlRouteReady(device: MegaInventoryDevice): boolean {
     const route = ppcsStreamRoute(device, this.#devices);
@@ -6368,6 +6390,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   #cameraIdentity(device: MegaInventoryDevice, eventProfile?: ReturnType<typeof resolveCameraEventProfile>): CameraIdentity {
     const dskPeerSerials = new Set(this.#dskKeys.keys());
     const route = ppcsStreamRoute(device, this.#devices);
+    const PanTiltController = panTiltDevice(device, route);
     const settingRoute = route ? this.#modelTrialRoute(device, route) : null;
     const sensitivityProfile = settingRoute ? cameraSettingProfile(settingRoute, "motionSensitivity") : null;
     const manualLightProfile = settingRoute ? cameraSettingProfile(settingRoute, "manualFloodlight") : null;
@@ -6572,7 +6595,8 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      directionalPanControlSupported: this.#c37ControlRouteReady(device),
+      directionalPanControlSupported: this.#c37ControlRouteReady(device)
+        || PanTiltController !== null && this.#panTiltAdmitted(device, PanTiltController),
       experimentalQuickResponseSupported: this.config.experimentalModelControls === true
         && this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null
         && route !== null && isQuickResponseRoute(this.#modelTrialRoute(device, route)) && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -6795,12 +6819,98 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Send one exact C37 direction through the same owned path as its diagnostic trial. */
+  /** Movement must not overlap another operation on any child sharing this HomeBase. */
+  #assertNoPanTiltConflict(device: MegaInventoryDevice): void {
+    const peer = ppcsStreamRoute(device, this.#devices)!.peer;
+    const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#cameraSirenOperations];
+    const peerBusy = this.#recordingPeerReserved(device.serial) || this.#stationOperations.has(peer.serial);
+    const cameraBusy = related.some(row => this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial))
+      || this.#panControlOperations.has(row.serial));
+    if (this.#localMotionAborters.size || peerBusy || cameraBusy) throw new Error("Wait for camera operations before moving the camera");
+  }
+
+  /** Select only: null means no open viewer; an unready viewer must not authorize another connection. */
+  #homeBaseViewerForPanTilt(device: MegaInventoryDevice) {
+    const route = ppcsStreamRoute(device, this.#devices)!;
+    const peer = route.peer;
+    const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+    const viewers = related.flatMap(source => {
+      const session = this.#ppcsStreams.get(source.serial);
+      if (!session || session.stats.closeReason !== "open") return [];
+      const binding = { stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        channel: source.channel!, accountId: source.adminUserId };
+      return [{ source, session, binding }];
+    });
+    if (!viewers.length) return null;
+    const viewer = viewers.find(({ session, binding }) => session.hasHomeBaseViewerBinding(binding));
+    if (!viewer) throw new Error("Wait for the HomeBase viewer to become ready");
+    return viewer;
+  }
+
+  /** Borrow a ready HomeBase viewer, or use the existing isolated-control lifecycle. */
+  #panTiltThroughHomeBase(device: MegaInventoryDevice, direction: "left" | "right" | "up" | "down", Controller: PanTiltDevice): Promise<void> {
+    const peer = ppcsStreamRoute(device, this.#devices)!.peer;
+    const generation = this.#startupGeneration, account = this.#client.authenticatedBinding();
+    const checkRequest = (): void => {
+      if (!account?.()) throw new Error("Pan request changed or retired");
+      const live = this.#devices.get(device.serial), livePeer = this.#devices.get(peer.serial);
+      if (!live || !livePeer || !this.#inventoryRouteCurrent(device, peer, generation)) throw new Error("Pan route changed or retired");
+      const endpointUnchanged = peer.p2pDid === livePeer.p2pDid && peer.p2pConnection === livePeer.p2pConnection;
+      const controllerUnchanged = panTiltDevice(live, ppcsStreamRoute(live, this.#devices)) === Controller;
+      if (!endpointUnchanged || !controllerUnchanged || !this.#panTiltAdmitted(live, Controller)) throw new Error("Pan route changed or retired");
+    };
+    checkRequest();
+    this.#assertNoPanTiltConflict(device);
+    const release = this.#reserveTrialPeer(peer.serial);
+    return (async () => {
+      let ownedSession: FirstPartyPpcsSession | undefined;
+      try {
+        const viewer = this.#homeBaseViewerForPanTilt(device);
+        const activeViewer = [...this.#ppcsStreams.keys()].some(serial =>
+          (this.#devices.get(serial)?.parentSerial || serial) === peer.serial);
+        if (!viewer && activeViewer) throw new Error("Close live view before using pan controls");
+        const current = (): void => {
+          checkRequest();
+          if (!viewer) return;
+          const liveSource = this.#devices.get(viewer.source.serial);
+          const sourceUnchanged = liveSource && !inventoryBindingChanged(viewer.source, liveSource);
+          const viewerStillOwned = this.#ppcsStreams.get(viewer.source.serial) === viewer.session
+            && viewer.session.hasHomeBaseViewerBinding(viewer.binding);
+          if (!sourceUnchanged || !viewerStillOwned) throw new Error("HomeBase viewer control route changed or retired");
+        };
+        if (!viewer) {
+          ownedSession = await this.#panControlSession(device);
+          current();
+          this.#trialSessions.set(peer.serial, ownedSession);
+          await ownedSession.start();
+        }
+        const session = viewer?.session ?? ownedSession!;
+        current();
+        await session.movePanTilt(direction, current, transport => new Controller(transport, device.channel!), device.channel!);
+        current();
+      } finally {
+        try { ownedSession?.close(); await ownedSession?.waitUntilClosed(); }
+        finally {
+          if (ownedSession && this.#trialSessions.get(peer.serial) === ownedSession) this.#trialSessions.delete(peer.serial);
+          release();
+        }
+      }
+    })();
+  }
+
+  /** Select a registered controller; legacy unregistered controls retain their original path. */
   panCamera(serial: string, direction: "left" | "right" | "up" | "down"): Promise<void> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
     this.#assertNoModelTrial(serial);
     const selected = this.#devices.get(serial);
+    const Controller = selected && panTiltDevice(selected, ppcsStreamRoute(selected, this.#devices));
+    if (selected && Controller && this.#panTiltAdmitted(selected, Controller) && ["left", "right", "up", "down"].includes(direction)) {
+      return this.#panTiltThroughHomeBase(selected, direction, Controller);
+    }
     if (!["left", "right", "up", "down"].includes(direction) || !selected || !this.#c37ControlRouteReady(selected)) {
       return Promise.reject(new Error("Direct camera movement is unavailable"));
     }
@@ -7024,9 +7134,11 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const route = ppcsStreamRoute(device, this.#devices);
     const peer = route?.peer;
     const dsk = peer ? await this.#dskKey(peer.serial) : null;
+    const PanTiltController = panTiltDevice(device, route);
     if (!route || !peer?.p2pDid || !peer.p2pConnection || !dsk || device.channel === null || !device.adminUserId
       || (route.homeBaseAttached
         ? !device.model.toUpperCase().startsWith("T817L") && !supportsSoloCamPresetControl(device, route, true)
+          && !(PanTiltController && this.#panTiltAdmitted(device, PanTiltController))
         : !supportsStandalonePanControl(device, route, true) && !supportsStandaloneC31Presets(device, route, true)
           && !this.#c37ControlRouteReady(device))) {
       throw new Error("Camera pan controls require a verified ready route");
@@ -7039,6 +7151,9 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       dskKey: dsk.key,
       channel: device.channel,
       cameraModel: device.model,
+      cameraDeviceType: device.deviceType,
+      stationModel: peer.model,
+      stationDeviceType: peer.deviceType,
       accountId: device.adminUserId,
       homeBaseAttached: route.homeBaseAttached,
       purpose: "control",
