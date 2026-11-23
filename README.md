@@ -223,9 +223,10 @@ The integration's internal Home Assistant domain remains `eufy_event_gateway` so
 
 On Home Assistant OS or Supervised, the app generates its own private API token and passes it directly to the integration through Supervisor discovery. The gateway port is closed to the LAN by default.
 
-An experimental [read-only T8520 lock profile](docs/T8520_READ_ONLY.md) can expose
-reported cloud lock state and battery for the exact type-51 direct models. It
-requires Experimental model controls and offers no lock or unlock service.
+Experimental read-only profiles can expose reported cloud lock state and battery
+for the [T8520 type-51 direct models](docs/T8520_READ_ONLY.md) and exact
+[Smart Lock C220 T8506/type 184](docs/C220_READ_ONLY.md). They
+require Experimental model controls and offer no lock or unlock service.
 Hardware behaviour remains unconfirmed.
 
 ## Before installing

@@ -513,7 +513,7 @@ export interface SmartLockState {
   readonly stationSerial?: string;
 
   readonly name: string;
-  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S" | "T85L0";
+  readonly model: "T85F1" | "T8520" | "T8520J11" | "T8520S" | "T85L0" | "T8506";
 
   /** Lock-owned inventory metadata; it does not refresh the physical state observation. */
   readonly firmware?: string | null;

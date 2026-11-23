@@ -15,12 +15,13 @@ import { FirstPartyPpcsSession } from "../src/stream/first-party-ppcs.js";
 import type { ProviderEvents } from "../src/provider/provider.js";
 import type { SmartLockState } from "../src/domain/types.js";
 
+for (const [model, deviceType] of [["T8520", 51], ["T8506", 184]] as const)
 for (const enabled of [false, true]) for (const e30 of [false, true]) {
-  test(`classic lock inventory has no actuator or transport with experimental=${enabled}, e30=${e30}`, async context => {
+  test(`${model} inventory has no actuator or transport with experimental=${enabled}, e30=${e30}`, async context => {
     const directory = await mkdtemp(join(tmpdir(), "classic-lock-"));
     const network = context.mock.method(globalThis, "fetch", async () => { throw Error("Network forbidden"); });
     context.mock.method(MegaClient.prototype, "connect", async () => ({ state: "authenticated" }));
-    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "fixture", device_model: "T8520", device_type: 51,
+    context.mock.method(MegaClient.prototype, "inventory", async () => ({ devices: [{ device_sn: "fixture", device_model: model, device_type: deviceType,
       category: "eufy_security", params: [{ param_type: 6000, param_value: "3" }, { param_type: 6001, param_value: "70" }] }] }));
     const credentials = context.mock.method(MegaClient.prototype, "e30MqttCredentials", async () => { throw Error("Credentials forbidden"); });
     const peer = context.mock.method(FirstPartyPpcsSession.prototype, "start", async () => { throw Error("Peer forbidden"); });

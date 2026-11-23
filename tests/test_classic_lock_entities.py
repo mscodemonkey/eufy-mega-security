@@ -1,4 +1,4 @@
-"""Protect the read-only T8520 entity boundary without contacting hardware.
+"""Protect read-only inventory lock entities without contacting hardware.
 
 Tests compile production callbacks with inert Home Assistant neighbours. They
 own only synthetic coordinator state and verify that inventory observations
@@ -104,16 +104,19 @@ class ClassicLockEntitiesTests(unittest.IsolatedAsyncioTestCase):
         """A classic row cannot masquerade as an actuating E30 or expose settings."""
 
         project = method("client.py", "GatewayClient", "_lock_state", {"GatewayClientError": ValueError})
-        row = {"serial": "fixture", "name": "Fixture", "model": "T8520", "state": "locked", "available": True,
-               "batteryPercent": 80, "stateObservedAt": None, "readOnly": True, "observationSource": "cloud_inventory",
-               "settings": {"autoLock": True}, "private": "SENTINEL"}
-        result = project(row)
-        self.assertTrue(result["readOnly"])
-        self.assertNotIn("settings", result)
-        self.assertNotIn("private", result)
-        for change in ({"readOnly": False}, {"observationSource": None}, {"model": "T8520P"}, {"model": "T85F1"}):
-            with self.assertRaises(ValueError):
-                project({**row, **change})
+        for model in ("T8520", "T8506"):
+            with self.subTest(model=model):
+                row = {"serial": "fixture", "name": "Fixture", "model": model, "state": "locked", "available": True,
+                       "batteryPercent": 80, "stateObservedAt": None, "readOnly": True, "observationSource": "cloud_inventory",
+                       "settings": {"autoLock": True}, "private": "SENTINEL"}
+                result = project(row)
+                self.assertTrue(result["readOnly"])
+                self.assertNotIn("settings", result)
+                self.assertNotIn("private", result)
+                for change in ({"readOnly": False}, {"observationSource": None}, {"observationSource": "device_query"},
+                               {"model": "T8520P"}, {"model": "T8506111"}, {"model": "T85F1"}):
+                    with self.assertRaises(ValueError):
+                        project({**row, **change})
 
     def test_client_admits_c33_only_as_a_status_only_device_query(self) -> None:
         """The C33 reads state from the lock itself but never becomes a motor profile."""

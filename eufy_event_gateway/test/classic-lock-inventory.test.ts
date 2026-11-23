@@ -13,9 +13,9 @@ const now = 1_800_000_000_000;
 const base: MegaDevice = { device_sn: "fixture", device_model: "T8520", device_type: 51, category: "eufy_security",
   device_name: "Synthetic lock", params: [{ param_type: 6000, param_value: "4" }, { param_type: 6001, param_value: "80" }] };
 
-for (const model of ["T8520", "T8520J11", "T8520S"]) {
+for (const [model, deviceType] of [["T8520", 51], ["T8520J11", 51], ["T8520S", 51], ["T8506", 184]] as const) {
   test(`read-only lock profile admits exact direct ${model} without motor authority`, () => {
-    const [state] = classicLockInventory([{ ...base, device_model: model }], true, now);
+    const [state] = classicLockInventory([{ ...base, device_model: model, device_type: deviceType }], true, now);
     assert.equal(state?.model, model); assert.equal(state?.readOnly, true); assert.equal(state?.observationSource, "cloud_inventory");
     assert.equal(state?.state, "locked"); assert.equal(state?.batteryPercent, 80); assert.equal(state?.available, true);
     assert.equal(state?.stateObservedAt, new Date(now).toISOString());
@@ -23,6 +23,22 @@ for (const model of ["T8520", "T8520J11", "T8520S"]) {
     assert.equal(maskSmartLockState(state!, now + 360_001).available, false);
   });
 }
+
+test("C220 admission is exact and its reported battery does not invent a bolt state", () => {
+  const row: MegaDevice = { ...base, device_model: "T8506", device_type: 184,
+    params: [{ param_type: 1101, param_value: "72" }] };
+  const [state] = classicLockInventory([row], true, now);
+  assert.equal(state?.state, "unknown");
+  assert.equal(state?.batteryPercent, 72);
+  assert.equal(state?.readOnly, true);
+  for (const change of [{ device_type: 51 }, { device_type: "184" }, { device_model: "T8506111" },
+    { device_model: "E8506111" }, { device_model: "t8506" }, { parent_sn: "homebase" },
+    { station_sn: "homebase" }]) {
+    assert.deepEqual(classicLockInventory([{ ...row, ...change } as MegaDevice], true, now), []);
+  }
+  assert.deepEqual(classicLockInventory([row], false, now), []);
+  assert.deepEqual(classicLockInventory([row, row], true, now), []);
+});
 
 test("default-off, unproven identity, duplicate identities and invalid clock refuse admission", () => {
   assert.deepEqual(classicLockInventory([base], false, now), []);
