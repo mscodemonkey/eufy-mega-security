@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 SOURCE = Path(__file__).parents[1] / "custom_components/eufy_event_gateway/camera.py"
@@ -25,14 +27,19 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         tree = ast.parse(SOURCE.read_text())
         camera = next(n for n in tree.body if isinstance(n, ast.ClassDef)
                       and n.name == "EufyGatewayCamera")
-        method = next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef)
-                      and n.name == "async_create_stream")
+        methods = {"async_create_stream", "_async_stream_url", "_async_plan_hls_handover", "_hls_handover_allowed"}
         base = type("CameraBase", (), {"async_create_stream": AsyncMock()})
         cls = ast.ClassDef(name="TestCamera", bases=[ast.Name(id="CameraBase", ctx=ast.Load())],
-                           keywords=[], body=[method, next(n for n in camera.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_stream_url")], decorator_list=[])
-        module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
-        namespace = {"HlsViewActivity": SimpleNamespace(install=Mock(return_value=None)), "CameraBase": base, "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError, "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
-                     "_new_view": lambda url: url, "_view_for": lambda _camera, url: url, "_with_view": lambda url, _view: url, "_view_of": lambda _url: None}
+                           keywords=[], body=[n for n in camera.body if getattr(n, "name", None) in methods],
+                           decorator_list=[])
+        helpers = [n for n in tree.body if getattr(n, "name", None) in {"_with_view", "_view_of"}]
+        module = ast.fix_missing_locations(ast.Module(body=[*helpers, cls], type_ignores=[]))
+        namespace = {"HlsViewActivity": SimpleNamespace(install=Mock(return_value=None)), "CameraBase": base,
+                     "Stream": object, "StreamOutput": object, "GatewayClientError": RuntimeError,
+                     "_LOGGER": Mock(), "asyncio": asyncio, "STREAM_URL_RENEWAL_TIMEOUT": 0.02,
+                     "PLANNED_HLS_PREPARATION_TIMEOUT": 0.2, "datetime": datetime, "LIVE_VIEW_QUERY": "view",
+                     "parse_qsl": parse_qsl, "urlencode": urlencode, "urlsplit": urlsplit, "urlunsplit": urlunsplit,
+                     "_new_view": lambda url: url, "_view_for": lambda _camera, url: url}
         exec(compile(module, str(SOURCE), "exec"), namespace)
         self.base = base
         self.camera = namespace["TestCamera"]()
@@ -51,6 +58,35 @@ class HlsIdleTest(unittest.IsolatedAsyncioTestCase):
         self.camera.serial = "demo"
         self.camera.coordinator = SimpleNamespace(live_audio={}, client=SimpleNamespace(stream_url=AsyncMock(return_value="fresh")))
         base.async_create_stream.return_value = self.stream
+
+    async def test_planned_handover_rechecks_recording_and_keeps_same_view(self):
+        """Use a scoped replacement only while the original HLS viewer still owns the output."""
+        source = "http://gateway/live.h264"
+        self.stream.source = source + "?access_token=old&view=fixture"
+        self.camera.coordinator.recording_holds = set()
+        client = self.camera.coordinator.client
+        client.planned_hls_handover_supported = True
+        client.stream_url.return_value = source + "?access_token=fresh"
+        provider = self.stream.outputs.return_value["hls"]
+        self.camera._hls_activity = SimpleNamespace(output=provider, recently_watched=Mock(return_value=False))
+        client.prepare_planned_hls = AsyncMock(return_value="ticket")
+        await self.camera._async_plan_hls_handover(None)
+        client.prepare_planned_hls.assert_not_called()
+
+        self.camera._hls_activity.recently_watched.return_value = True
+        await self.camera._async_plan_hls_handover(None)
+        client.prepare_planned_hls.assert_awaited_once_with("demo", "fixture")
+        self.stream.update_source.assert_called_once_with(source + "?access_token=fresh&view=fixture&handover=ticket")
+        self.stream.update_source.reset_mock()
+
+        async def request_while_recording(_serial, _view):
+            """Start a recording while the replacement ticket is in flight."""
+            self.camera.coordinator.recording_holds.add("recording")
+            return "ticket"
+
+        client.prepare_planned_hls.side_effect = request_while_recording
+        await self.camera._async_plan_hls_handover(None)
+        self.stream.update_source.assert_not_called()
 
     def test_stream_renewal_timeout_is_integration_owned(self) -> None:
         """Avoid importing a Home Assistant camera constant that moved in 2026.11."""

@@ -180,6 +180,11 @@ class HlsViewActivity:
             self.expiring = False
             self._awake()
 
+    def recently_watched(self) -> bool:
+        """Check for recent segment requests on this output before a planned handover."""
+        return (not self._closed and not self.expiring and self._last_request is not None
+                and self._loop.time() - self._last_request < self._quiet_seconds)
+
     def diagnostic(self) -> dict[str, Any]:
         """Retain content-free cleanup and public segment-wait observations.
 

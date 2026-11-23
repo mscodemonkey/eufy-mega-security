@@ -56,7 +56,13 @@ from . import EufyGatewayConfigEntry
 from .client import GatewayClientError
 from .coordinator import EufyGatewayCoordinator
 from .entity import EufyGatewayEntity
-from .const import CONF_H264_COMPATIBILITY, CONF_SHORT_HLS_IDLE, CONF_FAST_NATIVE_HLS, DOMAIN
+from .const import (
+    CONF_FAST_NATIVE_HLS,
+    CONF_H264_COMPATIBILITY,
+    CONF_PLANNED_HLS_HANDOVER,
+    CONF_SHORT_HLS_IDLE,
+    DOMAIN,
+)
 from .playback_diagnostics import serialize_stream
 from .hls_activity import HlsViewActivity
 
@@ -69,6 +75,8 @@ _LOGGER = logging.getLogger(__name__)
 CONF_DURATION = "duration"
 STREAM_SOURCE_REFRESH_INTERVAL = timedelta(minutes=5)
 STREAM_URL_RENEWAL_TIMEOUT = 10
+PLANNED_HLS_CHECK_INTERVAL = timedelta(seconds=5)
+PLANNED_HLS_PREPARATION_TIMEOUT = 3
 LIVE_VIEW_QUERY = "view"
 
 
@@ -141,6 +149,7 @@ async def async_setup_entry(
                     coordinator, serial,
                     short_hls_idle=entry.options.get(CONF_SHORT_HLS_IDLE) is True,
                     fast_native_hls=entry.options.get(CONF_FAST_NATIVE_HLS) is True,
+                    planned_hls_handover=entry.options.get(CONF_PLANNED_HLS_HANDOVER) is True,
                     h264_compatibility=entry.options.get(CONF_H264_COMPATIBILITY) is True,
                 )
                 for serial in sorted(serials)
@@ -221,12 +230,17 @@ def _view_of(url: str) -> str | None:
     return dict(parse_qsl(urlsplit(url).query)).get(LIVE_VIEW_QUERY)
 
 
-def _with_view(url: str, view: str | None) -> str:
-    """Set or remove the view mark, leaving the signed token as it is."""
+def _with_view(url: str, view: str | None, handover: str | None = None) -> str:
+    """Set the view and an optional one-time handover, preserving the signed token."""
     parts = urlsplit(url)
-    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != LIVE_VIEW_QUERY]
+    query = [
+        (key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key not in (LIVE_VIEW_QUERY, "handover")
+    ]
     if view is not None:
         query.append((LIVE_VIEW_QUERY, view))
+        if handover is not None:
+            query.append(("handover", handover))
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
@@ -280,6 +294,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
     def __init__(
         self, coordinator: EufyGatewayCoordinator, serial: str,
         *, short_hls_idle: bool = False, h264_compatibility: bool = False, fast_native_hls: bool = False,
+        planned_hls_handover: bool = False,
     ) -> None:
         """Bind playback options for this entity until the next entry reload."""
         EufyGatewayEntity.__init__(self, coordinator, serial)
@@ -291,6 +306,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
         self._short_hls_idle = short_hls_idle
         self._native_video = not h264_compatibility
         self._fast_native_hls = fast_native_hls
+        self._planned_hls_handover = planned_hls_handover
         self._hls_idle_stream: Stream | None = None
         self._hls_activity: HlsViewActivity | None = None
         self._stream_source_refreshing = False
@@ -549,6 +565,52 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                 STREAM_SOURCE_REFRESH_INTERVAL,
             )
         )
+
+        if self._planned_hls_handover and self.camera.get("model") in {"T8600", "T8223"}:
+            self.async_on_remove(
+                async_track_time_interval(self.hass, self._async_plan_hls_handover, PLANNED_HLS_CHECK_INTERVAL)
+            )
+
+    def _hls_handover_allowed(self, stream: Stream) -> bool:
+        """Require current, watched HLS output with an available worker and no recorder."""
+        activity = self._hls_activity
+        if (self.stream is not stream or activity is None or not stream.available
+                or stream.dynamic_stream_settings.preload_stream or self.coordinator.recording_holds):
+            return False
+        outputs = stream.outputs()
+        return set(outputs) == {"hls"} and outputs["hls"] is activity.output and activity.recently_watched()
+
+    async def _async_plan_hls_handover(self, now: datetime) -> None:
+        """Ask HA to restart its source while keeping the active HLS output."""
+        del now
+        stream = self.stream
+        client = self.coordinator.client
+        if (self.hass is None or stream is None or not client.planned_hls_handover_supported
+                or self._stream_source_refreshing or not self._hls_handover_allowed(stream)):
+            return
+        previous = stream.source
+        view = _view_of(previous)
+        if view is None:
+            return
+
+        async def prepare() -> tuple[str, str] | None:
+            """Obtain a scoped replacement ticket and matching signed media URL."""
+            ticket = await client.prepare_planned_hls(self.serial, view)
+            return (ticket, await self._async_stream_url()) if ticket is not None else None
+
+        self._stream_source_refreshing = True
+        try:
+            replacement = await asyncio.wait_for(prepare(), timeout=PLANNED_HLS_PREPARATION_TIMEOUT)
+            if replacement is None:
+                return
+            ticket, source = replacement
+            if (self.hass is not None and self._hls_handover_allowed(stream) and stream.source == previous
+                    and urlsplit(source).path == urlsplit(previous).path):
+                stream.update_source(_with_view(source, view, ticket))
+        except (GatewayClientError, asyncio.TimeoutError):
+            _LOGGER.debug("Could not prepare a planned HLS handover")
+        finally:
+            self._stream_source_refreshing = False
 
     def _close_hls_activity(self) -> None:
         """Retire only this entity's observer while HA removes its streams."""

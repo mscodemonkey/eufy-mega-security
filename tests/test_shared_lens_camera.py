@@ -204,6 +204,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
             entity.coordinator, entity.serial, entity.hass = coordinator, "test", None
             entity._track_live_audio = tracks
             entity._hls_activity = None
+            entity._planned_hls_handover = False
             entity._async_live_audio_changed = AsyncMock()
             entity._async_refresh_stream_source = AsyncMock()
             owned_callbacks = []
@@ -229,7 +230,7 @@ class SharedLensCameraTests(unittest.IsolatedAsyncioTestCase):
             """Ignore registration schemas, outside the discovery boundary being tested."""
             def __getattr__(self, name): return lambda *args, **kwargs: name
         env.update(er=SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get_entity_id=lambda *args: None)),
-                   DOMAIN="fixture", CONF_SHORT_HLS_IDLE="short", CONF_FAST_NATIVE_HLS="fast", CONF_H264_COMPATIBILITY="compat",
+                   DOMAIN="fixture", CONF_SHORT_HLS_IDLE="short", CONF_FAST_NATIVE_HLS="fast", CONF_PLANNED_HLS_HANDOVER="handover", CONF_H264_COMPATIBILITY="compat",
                    async_get_current_platform=lambda: SimpleNamespace(async_register_entity_service=lambda *args, **kwargs: None),
                    vol=Schema(), cv=Schema(), CONF_FILENAME="filename", CONF_DURATION="duration", SupportsResponse=SimpleNamespace(ONLY="only"))
         helper = next(n for n in tree.body if getattr(n, "name", None) == "_live_talkback_camera")

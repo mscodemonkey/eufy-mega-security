@@ -62,6 +62,7 @@ class GatewayClient:
         """Create a client from HA's shared HTTP session and gateway settings."""
         self.live_view_handover_supported = False
         self.hls_view_idle_supported = False
+        self.planned_hls_handover_supported = False
         self._session = session
         self.base_url = base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
@@ -138,6 +139,7 @@ class GatewayClient:
             raise GatewayClientError("Gateway returned an invalid camera list")
         self.live_view_handover_supported = payload.get("liveViewHandoverSupported") is True
         self.hls_view_idle_supported = payload.get("hlsViewIdleSupported") is True
+        self.planned_hls_handover_supported = payload.get("plannedHlsHandoverSupported") is True
         return [
             camera
             for camera in cameras
@@ -564,6 +566,15 @@ class GatewayClient:
         except (ValueError, TypeError, AttributeError, GatewayClientError):
             raise GatewayClientError("Gateway returned an invalid native stream response") from None
         return self._url(path)
+
+    async def prepare_planned_hls(self, serial: str, view: str) -> str | None:
+        """Request a short-lived replacement ticket for the current view."""
+        payload = await self._json(
+            f"/api/cameras/{quote(serial, safe='')}/planned-hls", method="POST",
+            payload={"view": view}, timeout=3,
+        )
+        ticket = payload.get("handover")
+        return ticket if isinstance(ticket, str) and re.fullmatch(r"[A-Za-z0-9_-]{24}", ticket) else None
 
     async def hold_live_view(self, serial: str, view: str) -> bool:
         """Keep an NVR call with a marked view that Home Assistant now records from."""

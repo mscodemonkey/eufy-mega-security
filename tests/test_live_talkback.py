@@ -226,7 +226,7 @@ class LiveTalkbackTests(unittest.IsolatedAsyncioTestCase):
                                 options={}, async_on_unload=lambda fn: None)
         env = self.scope
         env.update(er=SimpleNamespace(async_get=lambda value: SimpleNamespace(async_get_entity_id=lambda *args: None)),
-                   DOMAIN="fixture", CONF_SHORT_HLS_IDLE="short", CONF_FAST_NATIVE_HLS="fast", CONF_H264_COMPATIBILITY="compat",
+                   DOMAIN="fixture", CONF_SHORT_HLS_IDLE="short", CONF_FAST_NATIVE_HLS="fast", CONF_PLANNED_HLS_HANDOVER="handover", CONF_H264_COMPATIBILITY="compat",
                    async_get_current_platform=lambda: SimpleNamespace(async_register_entity_service=lambda *args, **kwargs: None),
                    vol=Schema(), cv=Schema(), CONF_FILENAME="filename", CONF_DURATION="duration",
                    SupportsResponse=SimpleNamespace(ONLY="only"), _shared_lens_profile=lambda value: False)

@@ -3740,6 +3740,17 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     throw new Error("First-party PPCS camera transport is unavailable for this camera");
   }
 
+  /** Report the live limit only for the exact HomeBase 3 routes covered by the HLS trial. */
+  plannedHlsRemainingMilliseconds(serial: string): number | null {
+    if (this.#rtcPreparation.gated) return null;
+    const device = this.#devices.get(serial);
+    if (!device || !(device.model === "T8600" && device.deviceType === 24
+      || device.model === "T8223" && (device.deviceType === 95 || device.deviceType === 96))) return null;
+    const route = ppcsStreamRoute(device, this.#devices);
+    return route?.homeBaseAttached && route.peer.model === "T8030" && route.peer.deviceType === 18
+      ? this.#ppcsStreams.get(serial)?.remainingLiveMilliseconds() ?? null : null;
+  }
+
   async stopStream(serial: string): Promise<void> {
     this.#assertRtcPreparationIdle();
     const doorbell = this.#doorbellTrials.get(serial);

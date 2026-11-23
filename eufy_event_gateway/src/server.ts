@@ -569,7 +569,7 @@ export class GatewayServer {
         });
       }
       if (request.method === "GET" && url.pathname === "/api/cameras") {
-        return json(response, 200, { cameras: this.state.listCameras(), liveViewHandoverSupported: true, hlsViewIdleSupported: true });
+        return json(response, 200, { cameras: this.state.listCameras(), liveViewHandoverSupported: true, hlsViewIdleSupported: true, plannedHlsHandoverSupported: Boolean(this.config.apiToken) });
       }
       if (request.method === "GET" && url.pathname === "/api/locks") {
         return json(response, 200, { locks: this.#visibleLocks() });
@@ -1377,6 +1377,9 @@ export class GatewayServer {
       ) {
         return await this.#eventImage(segments[2]!, response);
       }
+      if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments[3] === "planned-hls" && segments.length === 4) {
+        return await this.#preparePlannedHls(request, segments[2]!, response);
+      }
       if (request.method === "POST" && segments[0] === "api" && segments[1] === "cameras" && segments[3] === "live-view-hold" && segments.length === 4) {
         return await this.#holdLiveView(request, segments[2]!, response);
       }
@@ -1386,7 +1389,8 @@ export class GatewayServer {
         && (segments[3] === "live.h264" || segments[3] === "live.ts" || segments[3] === "live-native.annexb" || segments[3] === "live-native.ts") && segments.length === 4
       ) {
         return await this.#live(segments[2]!, response, segments[3] === "live.ts" || segments[3] === "live-native.ts",
-          segments[3].startsWith("live-native.") ? "native" : "compatible", liveViewMark(url));
+          segments[3].startsWith("live-native.") ? "native" : "compatible", liveViewMark(url),
+          url.searchParams.getAll("handover").length === 1 ? url.searchParams.get("handover") ?? undefined : undefined);
       }
       if (request.method === "GET" && segments[0] === "api" && segments[1] === "cameras" && segments.length === 4
         && ["live-main.h264", "snapshot-main"].includes(segments[3]!)) {
@@ -1821,7 +1825,8 @@ export class GatewayServer {
     response.end(image);
   }
 
-  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
+  async #live(serial: string, response: ServerResponse, transport = false, profile: ViewerProfile = "compatible", view?: string,
+    handover?: string): Promise<void> {
     if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
     if (!this.state.getCamera(serial).streamSupported) {
       return json(response, 409, { error: "This camera was discovered through push events only; livestream control is unavailable" });
@@ -1830,8 +1835,26 @@ export class GatewayServer {
       return json(response, 409, { error: "Live audio transport is unavailable for this camera" });
     }
     logger.info("camera_media_request", `model=${safeCameraModel(this.state.getCamera(serial).model)} operation=${profile === "native" ? "live_view_native" : "live_view"}`);
+    if (view && handover && !response.destroyed && !await this.streams.retirePlannedHls(serial, view, handover)) {
+      if (!response.destroyed) return json(response, 503, { error: "Previous camera stream is still retiring" });
+      return;
+    }
     if (transport) await this.streams.addTransportClient(serial, response, profile, view);
     else await this.streams.addClient(serial, response, profile, view);
+  }
+
+  /** Prepare a single-use replacement for a live HA viewer. A media URL alone cannot issue one. */
+  async #preparePlannedHls(request: IncomingMessage, serial: string, response: ServerResponse): Promise<void> {
+    response.setHeader("Cache-Control", "no-store");
+    if (!this.config.apiToken) return json(response, 401, { error: "Unauthorized" });
+    if (!this.state.hasCamera(serial)) return json(response, 404, { error: "Camera not found" });
+    let body: Record<string, unknown>;
+    try { body = await readJson(request); }
+    catch { return json(response, 400, { error: "Invalid planned HLS request" }); }
+    if (typeof body.view !== "string" || !LIVE_VIEW_PATTERN.test(body.view)) {
+      return json(response, 400, { error: "Invalid planned HLS request" });
+    }
+    return json(response, 200, { handover: this.streams.preparePlannedHls(serial, body.view) });
   }
 
   /** Keep an NVR call with a marked view that Home Assistant has started recording from. */
