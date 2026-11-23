@@ -250,6 +250,7 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_observer_is_installed_once_and_checks_all_ha_owners(self) -> None:
         self.stream.source = self.namespace["_new_view"](URL, True)
+        self.stream.get_diagnostics = Mock(return_value={"worker_error": 0})
         self.camera.stream = self.stream
         provider = self.stream.add_provider.return_value
         self.stream.outputs.return_value = {"hls": provider}
@@ -260,8 +261,12 @@ class LiveViewMarkTest(unittest.IsolatedAsyncioTestCase):
         self.stream.add_provider("hls")
         self.stream.add_provider("hls")
         install.assert_called_once()
-        installed, allowed = install.call_args.args
+        installed, allowed, diagnostic_reader = install.call_args.args
         self.assertIs(installed, provider)
+        self.assertEqual(diagnostic_reader(), {"worker_error": 0})
+        self.stream.get_diagnostics.return_value = {"worker_error": 1}
+        self.assertEqual(diagnostic_reader(), {"worker_error": 1})
+        self.stream.get_diagnostics.return_value = {}
         self.assertTrue(allowed())
         self.stream.dynamic_stream_settings.preload_stream = True
         self.assertFalse(allowed())
