@@ -17,11 +17,12 @@ import type { LiveStreamManager } from "../src/stream/live-stream-manager.js";
 import { classicLockInventory } from "../src/provider/classic-lock-inventory.js";
 import type { SmartLockState } from "../src/domain/types.js";
 
+for (const [model, deviceType] of [["T8520", 51], ["T8506", 184]] as const)
 for (const read of [false, true]) for (const motor of [false, true]) {
-  test(`classic lock HTTP and SSE visibility read=${read}, motor=${motor}`, async () => {
+  test(`${model} HTTP and SSE visibility read=${read}, motor=${motor}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "classic-http-"));
     const state = new GatewayState();
-    const classic = classicLockInventory([{ device_sn: "classic", device_model: "T8520", device_type: 51, category: "eufy_security",
+    const classic = classicLockInventory([{ device_sn: "classic", device_model: model, device_type: deviceType, category: "eufy_security",
       params: [{ param_type: 6000, param_value: "4" }] }], true, Date.now())[0]!;
     const e30: SmartLockState = { serial: "e30", name: "Fixture", model: "T85F1", state: "locked", available: true, batteryPercent: 70, stateObservedAt: new Date().toISOString() };
     const c33: SmartLockState = { ...e30, serial: "c33", model: "T85L0", readOnly: true, observationSource: "device_query" };

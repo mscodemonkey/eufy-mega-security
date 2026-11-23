@@ -229,7 +229,7 @@ class GatewayClient:
     def _lock_state(value: Any) -> dict[str, Any]:
         """Project only normalized public facts, rejecting ambiguous command results."""
         if (not isinstance(value, dict) or not isinstance(value.get("serial"), str)
-                or value.get("model") not in ("T85F1", "T8520", "T8520J11", "T8520S", "T85L0")
+                or value.get("model") not in ("T85F1", "T8520", "T8520J11", "T8520S", "T85L0", "T8506")
                 or value.get("state") not in ("locked", "unlocked", "unknown")
                 or not isinstance(value.get("available"), bool)):
             raise GatewayClientError("Gateway returned invalid lock state")

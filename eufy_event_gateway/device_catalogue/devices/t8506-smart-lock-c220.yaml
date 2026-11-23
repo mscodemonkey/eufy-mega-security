@@ -11,6 +11,7 @@ models:
   - T8506111
   - E8506111
 device_type: 184
+notes: Exact standalone T8506/type 184 has an experimental inventory-only state and battery profile. It creates no lock entity or commands. Physical readings remain unconfirmed.
 capabilities:
   readable:
     battery_level:
