@@ -36,14 +36,16 @@ test("T8170 browser form stays read-only and refuses private or malformed result
   assert.equal(element("trial-action").value, "alarmState"); assert.equal(element("trial-value").value, "false");
   assert.equal(element("trial-siren-stop").hidden, true);
   assert.doesNotMatch(element("trial-consent-label").textContent, /siren|arm|restor/i);
-  for(const value of [{ outcome: "decoded", parameterCount: 2, guardMode: 63 },
+  for(const value of [{ outcome: "decoded", parameterCount: 2, guardMode: 63, workingMode: 1 },
     { outcome: "decoded", parameterCount: 2, private: "private-serial-owner-key" }, { outcome: "decoded", parameterCount: 1.5 },
     { outcome: "decoded", parameterCount: 65536 }, { outcome: "decoded", parameterCount: 1, guardMode: 7 },
     { outcome: "timeout", frames: 0, parseStage: "none", keyReady: true },
     { outcome: "unavailable", frames: 0, parseStage: "none", keyReady: false }]) {
     result = value; element("trial-consent").checked = true; await element("trial-send").onclick!();
     assert.equal(element("trial-consent").checked, false); assert.doesNotMatch(element("trial-status").textContent, /private-serial/);
-    if("guardMode" in value && value.guardMode === 63) assert.match(element("trial-status").textContent, /mapping unconfirmed/);
+    if ("workingMode" in value) {
+      assert.match(element("trial-status").textContent, /Selected mode 63 .*Mode in effect 1 .*Share the comparison privately/);
+    }
     if(value.outcome === "unavailable") assert.match(element("trial-status").textContent, /not sent.*not tested/);
   }
   fail = true; element("trial-consent").checked = true; await element("trial-send").onclick!();

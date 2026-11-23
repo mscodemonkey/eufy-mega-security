@@ -10,7 +10,7 @@ The session has a 40-second maximum after connection. Closing the browser does n
 
 ## Reading the result
 
-- **Decoded** reports a count of distinct parameter types and, when strictly valid, a numeric guard mode. The guard-mode mapping is unconfirmed. A decoded document is uncorrelated and does not prove it answered this query.
+- **Decoded** reports a count of distinct parameter types and any valid numeric values for the selected mode and the mode in effect. These can differ when a schedule is selected. The numeric mappings still need hardware confirmation. A decoded document is uncorrelated and does not prove it answered this query.
 - **Timeout** is inconclusive. The query may have reached the camera without a usable reply.
 - **Unavailable**, with `keyReady: false`, means the query was not sent and this hypothesis was not tested.
 - **Unavailable**, with `keyReady: true`, is inconclusive. The query may or may not have been sent before the session ended.
@@ -19,4 +19,4 @@ The read never publishes an arming state to Home Assistant or updates normal cam
 
 ## Private comparison
 
-Read the current state in the Eufy app without changing it. Do not arm or disarm the household for this test. If you choose to test, send only the outcome, parameter count, numeric guard mode if shown, and current app state through the configured private project mailbox or another agreed private channel. These reveal household security state, so do not put them in a public issue. Do not send identifiers, full logs or account details.
+Read the current state in the Eufy app without changing it. Do not arm or disarm the household for this test. If you choose to test, send only the outcome, parameter count, numeric mode values if shown, and current app state through the configured private project mailbox or another agreed private channel. These reveal household security state, so do not put them in a public issue. Do not send identifiers, full logs or account details.
