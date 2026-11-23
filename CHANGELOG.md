@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.280
+
+- Add an optional planned live-view handover for actively watched E330 Professional and C31 cameras on HomeBase 3. It starts off and preserves recording, preload and shared-source protection. The generated-feed HA checks passed, while the reported hardware and browser freeze still need confirmation.
+- Add read-only C220 (T8506, type 184) reported lock state and battery behind Experimental model controls. This sends no lock commands. Hardware readings remain unconfirmed.
+- Add a saved-connection terminal helper for the S340 separate parameter check. The helper does not display the gateway token or change camera settings. Higher delivered resolution and telephoto selection remain unresolved.
+- Keep the S340 alarm diagnostic's selected and effective modes separate. Shared-account restrictions remain, and no alarm control is added.
+- Retain per-output HA segment and part wait observations with worker counters before and after each wait. This improves timing evidence without changing playback, retries or timeouts.
+- Add a structural receive timeline to optional private S330 (T86P2) diagnostics, separating arrival, ordered delivery, sequence gaps, parser recovery and frames. This does not repair the reported corrupted video.
+- Record the reporter-confirmed S120 motion result separately from tentative person detection.
+- Pinned repository checks, regression tests and hosted checks passed for the included changes. Development Home Assistant fetched real HLS fragments with the new wait observations, and retained gateway and HA image checks passed. Publication and final stable deployment are verified separately.
+- The intermittent zero-video starts, active-view pauses, browser freeze, S330 corruption and unconfirmed model-specific controls remain open. Experimental options stay off by default. No account, encryption or camera security settings need changing for this release.
+
 ## 0.1.279
 
 - Prefer each device or station record's app connection servers, retaining the existing legacy fallback when the app field is unavailable. The correction has passed current normal local media checks. Separate intermittent startup failures and video pauses remain unresolved.
