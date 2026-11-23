@@ -62,3 +62,4 @@ CONF_LEGACY_NATIVE_VIDEO = "experimental_native_video"
 
 # Shorten only a new, isolated native HLS stream after explicit entry opt-in.
 CONF_FAST_NATIVE_HLS = "experimental_fast_native_hls"
+CONF_PLANNED_HLS_HANDOVER = "experimental_planned_hls_handover"

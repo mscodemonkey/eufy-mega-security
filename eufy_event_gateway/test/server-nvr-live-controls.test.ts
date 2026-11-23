@@ -87,3 +87,39 @@ test("the live view hold route checks its input and holds only the named view", 
     assert.deepEqual(held, [["synthetic", mark]]);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("preparing a planned HLS handover requires the gateway bearer and a valid view mark", async () => {
+  const state = new GatewayState();
+  state.registerCamera({ serial: "synthetic", name: "Synthetic", model: "T8600", stationSerial: "synthetic-parent",
+    streamSupported: true, doorbellSupported: false });
+  const received: Array<[string, string]> = [];
+  const streams = {
+    preparePlannedHls(serial: string, view: string) {
+      received.push([serial, view]);
+      return "synthetic_ticket_value00";
+    },
+  } as unknown as LiveStreamManager;
+  const server = new GatewayServer({ ...loadConfig({}), port: 0, apiToken: "synthetic-secret" }, state, {} as SnapshotStore,
+    streams, {} as CameraProvider, null);
+  try {
+    await server.listen();
+    const mark = "synthetic-view-0000000";
+    const send = (serial: string, view: unknown, authorization?: string) => fetch(
+      `http://127.0.0.1:${server.port}/api/cameras/${serial}/planned-hls`, {
+        method: "POST", headers: { "content-type": "application/json", ...(authorization ? { authorization } : {}) },
+        body: JSON.stringify({ view }),
+      });
+    assert.equal((await send("synthetic", mark)).status, 401);
+    const bearer = "Bearer synthetic-secret";
+    assert.equal((await send("missing", mark, bearer)).status, 404);
+    assert.equal((await send("synthetic", "short", bearer)).status, 400);
+    assert.deepEqual(received, []);
+    const response = await send("synthetic", mark, bearer);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { handover: "synthetic_ticket_value00" });
+    assert.deepEqual(received, [["synthetic", mark]]);
+  } finally {
+    await server.close();
+  }
+});

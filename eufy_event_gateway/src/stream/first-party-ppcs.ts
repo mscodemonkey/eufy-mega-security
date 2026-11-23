@@ -1914,6 +1914,7 @@ export class FirstPartyPpcsSession {
   #alarmRead: AlarmReadOwner | null = null;
   #alarmReadUsed = false;
   #sessionDeadline = Number.POSITIVE_INFINITY;
+  #liveDeadline: number | null = null;
   #lockStatus: { readonly identity: T85V0StatusIdentity; readonly keyTime: number; readonly sequence: number;
     readonly resolve: (value: T85V0StatusSummary) => void; readonly reject: (error: T85V0StatusError) => void;
     readonly timer: NodeJS.Timeout; readonly trace: PpcsQueryTrace } | null = null;
@@ -1926,6 +1927,11 @@ export class FirstPartyPpcsSession {
 
   /** Own one manual thumbnail read without routing it through the live media decoder. */
   #eventPicture: EventPictureReader | null = null;
+
+  /** Report the remaining enforced lifetime on the monotonic clock, or null before start or after close. */
+  remainingLiveMilliseconds(): number | null {
+    return this.#closed || this.#liveDeadline === null ? null : Math.max(0, this.#liveDeadline - performance.now());
+  }
 
   /** Return the codec proven by emitted NAL headers, or frame metadata as a fallback. */
   get videoCodec(): VideoCodec | null {
@@ -2108,11 +2114,10 @@ export class FirstPartyPpcsSession {
         this.#lookupTimer.unref?.();
       });
     });
-    this.#sessionDeadline = Date.now() + (this.#options.maxSeconds ?? 30) * 1_000;
-    this.#maximumDurationTimer = setTimeout(
-      () => this.close("max_duration"),
-      (this.#options.maxSeconds ?? 30) * 1_000,
-    );
+    const maximumLifetime = (this.#options.maxSeconds ?? 30) * 1_000;
+    this.#sessionDeadline = Date.now() + maximumLifetime;
+    this.#liveDeadline = performance.now() + maximumLifetime;
+    this.#maximumDurationTimer = setTimeout(() => this.close("max_duration"), maximumLifetime);
     if (this.#options.purpose !== "control" && this.#options.purpose !== "passive") {
       this.#firstFrameTimer = setTimeout(
         () => this.close("first_frame_timeout"),

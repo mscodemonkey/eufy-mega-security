@@ -1917,3 +1917,105 @@ test("scaling baseline shares H.265 children and isolates stall, reopen and idle
     await manager.close();
   }
 });
+
+test("planned HLS replacement waits for the exact old call, even after its viewer disconnects", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const events: string[] = [];
+  let source = new PassThrough();
+  let remaining = 120_000;
+  let now = 0;
+  const retirement = Promise.withResolvers<void>();
+  const manager = new LiveStreamManager(state, {} as never, {
+    async startStream(serial) {
+      events.push("start");
+      source = new PassThrough();
+      manager.attachSource(serial, source, () => "h264");
+    },
+    async stopStream() {
+      events.push("stop_requested");
+      await retirement.promise;
+      events.push("retired");
+    },
+    plannedHlsRemainingMilliseconds: () => remaining,
+  }, 10_000, undefined, undefined, undefined, undefined, () => now);
+  const viewer = "hls-view-fixture-001";
+  const other = "hls-view-fixture-002";
+  const first = new PassThrough() as unknown as ServerResponse;
+  const second = new PassThrough() as unknown as ServerResponse;
+  const replacement = new PassThrough() as unknown as ServerResponse;
+  for (const connection of [first, second, replacement]) {
+    connection.writeHead = (() => connection) as ServerResponse["writeHead"];
+    connection.on("data", () => {});
+  }
+  try {
+    await manager.addClient(camera.serial, first, "native", viewer);
+    remaining = 8_000;
+    assert.equal(manager.preparePlannedHls(camera.serial, viewer), null, "wait for media delivery");
+    source.write(Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0x11),
+      annexBNal(0x65, 0x80, 1), annexBNal(0x41, 0x22)]));
+    remaining = 16_000;
+    assert.equal(manager.preparePlannedHls(camera.serial, viewer), null, "wait until near the source limit");
+    remaining = 8_000;
+    const ticket = manager.preparePlannedHls(camera.serial, viewer);
+    assert.ok(ticket);
+    assert.deepEqual(events, ["start"], "preparation leaves the old call running");
+    assert.equal(await manager.retirePlannedHls(camera.serial, other, ticket), true);
+    await manager.addClient(camera.serial, second, "native", other);
+    assert.equal(manager.preparePlannedHls(camera.serial, viewer), null);
+    assert.equal(await manager.retirePlannedHls(camera.serial, viewer, ticket), true);
+    assert.deepEqual(events, ["start"], "a new viewer protects the shared call");
+    second.emit("close");
+
+    const expired = manager.preparePlannedHls(camera.serial, viewer);
+    assert.ok(expired);
+    now += 8_000;
+    assert.equal(await manager.retirePlannedHls(camera.serial, viewer, expired), true);
+    assert.deepEqual(events, ["start"], "expiry falls back to the same source");
+
+    const liveTicket = manager.preparePlannedHls(camera.serial, viewer);
+    assert.ok(liveTicket);
+    first.emit("close");
+    const retiring = manager.retirePlannedHls(camera.serial, viewer, liveTicket);
+    const opening = manager.addClient(camera.serial, replacement, "native", viewer);
+    assert.deepEqual(events, ["start", "stop_requested"]);
+    retirement.resolve();
+    assert.equal(await retiring, true);
+    await opening;
+    assert.deepEqual(events, ["start", "stop_requested", "retired", "start"]);
+    assert.equal(await manager.retirePlannedHls(camera.serial, viewer, liveTicket), true);
+    assert.deepEqual(events, ["start", "stop_requested", "retired", "start"], "replay cannot stop the new call");
+  } finally {
+    retirement.resolve();
+    await manager.close();
+  }
+});
+
+test("a recording hold granted after HLS preparation protects the live source", async () => {
+  const state = new GatewayState();
+  state.registerCamera(camera);
+  const source = new PassThrough();
+  let stops = 0;
+  const manager = new LiveStreamManager(state, {} as never, {
+    async startStream(serial) { manager.attachSource(serial, source, () => "h264"); },
+    async stopStream() { stops++; },
+    plannedHlsRemainingMilliseconds: () => 8_000,
+  }, 10_000);
+  const viewer = "hls-view-fixture-001";
+  const response = new PassThrough() as unknown as ServerResponse;
+  response.writeHead = (() => response) as ServerResponse["writeHead"];
+  response.on("data", () => {});
+  try {
+    await manager.addClient(camera.serial, response, "native", viewer);
+    source.write(Buffer.concat([annexBNal(0x67, 0x42), annexBNal(0x68, 0x11),
+      annexBNal(0x65, 0x80, 1), annexBNal(0x41, 0x22)]));
+    const ticket = manager.preparePlannedHls(camera.serial, viewer);
+    assert.ok(ticket);
+    assert.equal(manager.holdView(camera.serial, viewer), true);
+    assert.equal(await manager.retirePlannedHls(camera.serial, viewer, ticket), true);
+    assert.equal(stops, 0);
+    assert.equal(response.writableEnded, false);
+  } finally {
+    await manager.close();
+  }
+});

@@ -10,6 +10,7 @@
  * Pending startup belongs to the session and is shared by all its consumers.
  */
 import { spawn, type ChildProcessWithoutNullStreams, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { setPriority } from "node:os";
 import { type Readable, type Writable } from "node:stream";
@@ -41,6 +42,9 @@ export interface StreamController {
 
   /** Resolve after the old source's stop callbacks and owned media I/O have retired. */
   stopStream(serial: string): Promise<void>;
+
+  /** Remaining provider lifetime for an admitted planned HLS handover, or null. */
+  plannedHlsRemainingMilliseconds?(serial: string): number | null;
 
   /**
    * Open one S4 lens on its own native NVR call for a pane camera. The provider
@@ -157,7 +161,8 @@ export type ViewerProfile = "compatible" | "native";
  * Consumer closure includes HTTP transport closure and does not prove user intent.
  */
 export type ViewerCloseReason = "consumer_closed" | "consumer_error" | "start_failed" | "provider_stopped"
-  | "source_ended" | "source_error" | "gateway_closed" | "codec_changed" | "conversion_failed" | "backpressure";
+  | "source_ended" | "source_error" | "gateway_closed" | "codec_changed" | "conversion_failed" | "backpressure"
+  | "planned_handover";
 
 /**
  * Correlates a viewer request with one manager-owned camera session. Slots are
@@ -269,6 +274,9 @@ interface Session {
 
   /** Marked native S220 views already retired for late AAC on this exact source. */
   readonly lateAudioViews: Set<string>;
+
+  /** Single-use handover for this exact source, cleared at retirement. */
+  plannedHls?: { readonly view: string; readonly ticket: string; readonly expiresAt: number };
   parameterSets: VideoParameterSetCache;
   state: "idle" | "starting" | "streaming" | "stopping" | "error";
   start: PendingSourceStart | null;
@@ -684,6 +692,50 @@ export class LiveStreamManager extends EventEmitter {
    */
   addClient(serial: string, response: VideoViewerResponse, profile: ViewerProfile = "compatible", view?: string): Promise<void> {
     return this.#addClient(serial, response, profile, performance.now(), view);
+  }
+
+  /**
+   * Offer handover only near the provider's limit and while the sole viewer has
+   * received video. This prepares the replacement without interrupting playback.
+   */
+  preparePlannedHls(serial: string, view: string): string | null {
+    const session = this.#sessions.get(serial);
+    if (!session || session.clients.size !== 1 || !this.#mayReplaceHls(session, view)) return null;
+    const viewer = session.clients.values().next().value!;
+    if (session.clientDeliveries.get(viewer)?.deliveryStarted !== true) return null;
+    const remaining = this.controller.plannedHlsRemainingMilliseconds?.(serial);
+    if (remaining == null || remaining > 15_000 || remaining < 3_000) return null;
+    const now = this.nowMilliseconds();
+    if (session.plannedHls?.view === view && session.plannedHls.expiresAt > now) return session.plannedHls.ticket;
+    const ticket = randomBytes(18).toString("base64url");
+    session.plannedHls = { view, ticket, expiresAt: now + remaining - 500 };
+    return ticket;
+  }
+
+  /**
+   * Consume a matching replacement ticket and wait for provider retirement.
+   * Ineligible or stale tickets preserve the ordinary reconnect path. The old
+   * response may already be closed, leaving its source in the grace period.
+   */
+  async retirePlannedHls(serial: string, view: string, ticket: string): Promise<boolean> {
+    const session = this.#sessions.get(serial);
+    const planned = session?.plannedHls;
+    if (!session || planned?.ticket !== ticket || planned.view !== view) return true;
+    delete session.plannedHls;
+    if (planned.expiresAt <= this.nowMilliseconds() || !this.#mayReplaceHls(session, view)
+      || !this.controller.plannedHlsRemainingMilliseconds?.(serial)) return true;
+    this.#cancelStop(session);
+    return this.#stopOwnedSource(serial, session, undefined, "planned_handover");
+  }
+
+  /** Protect recordings, shared consumers and other work throughout handover admission. */
+  #mayReplaceHls(session: Session, view: string): boolean {
+    return !this.#closed && !session.privateTrial && session.owned
+      && session.state === "streaming" && session.source !== null
+      && !session.start && !session.stop && session.leases === 0 && session.recordings.size === 0
+      && session.heldClients.size === 0 && !this.#heldViews.has(view) && session.clients.size <= 1
+      && (session.clients.size === 0 ? session.stopTimer !== null
+        : [...session.clients].every(client => session.yieldingClients.get(client) === view));
   }
 
   /** Share a checked E340 main crop while preserving the existing source and recordings. */
@@ -1414,17 +1466,19 @@ export class LiveStreamManager extends EventEmitter {
    * Serialize source retirement before another viewer acquires a source. A quiet
    * source fails its consumers only after this stop gate protects replacements.
    */
-  async #stopOwnedSource(serial: string, session: Session, sourceError?: Error): Promise<boolean> {
+  async #stopOwnedSource(serial: string, session: Session, sourceError?: Error,
+    plannedReason?: "planned_handover"): Promise<boolean> {
     if (session.stop) return session.stop;
     let resolve!: (stopped: boolean) => void;
     const stop = new Promise<boolean>(accept => { resolve = accept; });
     session.stop = stop;
     let stopped = false;
     try {
-      if (sourceError) {
+      if (sourceError || plannedReason) {
+        if (plannedReason) for (const client of session.clients) this.#markViewerClose(session, client, plannedReason);
         this.#sourceEnded(serial, session.generation, sourceError);
 
-        // The failed source still owns provider I/O until stop is confirmed.
+        // The source still owns provider I/O until stop is confirmed.
         session.owned = true;
       }
       this.#retireStart(session, new Error("Camera stream stopped during startup"));
@@ -1851,6 +1905,7 @@ export class LiveStreamManager extends EventEmitter {
   }
 
   #cleanupSource(session: Session): void {
+    delete session.plannedHls;
     session.suppressSnapshots = false;
     if (session.sourceQuietTimer) clearTimeout(session.sourceQuietTimer);
     session.sourceQuietTimer = null;
