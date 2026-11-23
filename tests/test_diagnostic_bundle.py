@@ -343,6 +343,51 @@ class DiagnosticBundleTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue()), summary)
         self.assertNotIn("private", output.getvalue())
 
+    def test_s340_state_check_uses_the_saved_connection_and_closed_summary(self):
+        """Make the S340 probe accessible without printing a token or lens value."""
+        target = {"serial": "private-camera", "model": "T8170"}
+        for observation in ["missing", "valid", "invalid", "conflicting"]:
+            summary = {"model": "T8170", "profile": "s340_view_mode_candidate",
+                       "observations": {"6243": observation}}
+
+            def reply(url, token, method="GET", value=None, **kwargs):
+                if url.endswith("/targets"):
+                    return json.dumps({"devices": [target]}).encode()
+                self.assertEqual(token, "private-token")
+                self.assertTrue(url.endswith("/api/diagnostics/parameter-check"))
+                self.assertEqual((method, value, kwargs),
+                                 ("POST", {"serial": "private-camera", "consent": True}, {"timeout": 35}))
+                return json.dumps(summary).encode()
+
+            output = io.StringIO()
+            with patch.object(TOOL.HELPERS, "gateway_connection", return_value=("http://private.invalid", "private-token")), patch.object(TOOL, "request", side_effect=reply) as request, redirect_stdout(output):
+                self.assertEqual(TOOL.main(["state-check", "--target-index", "1", "--consent-read"]), 0)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(json.loads(output.getvalue()), summary)
+            self.assertNotIn("private", output.getvalue())
+
+    def test_s340_state_check_refuses_other_profiles_and_private_values(self):
+        """Keep raw lens values, unrelated fields and device-list reads excluded."""
+        target = {"serial": "private-camera", "model": "T8170"}
+        summary = {"model": "T8170", "profile": "s340_view_mode_candidate",
+                   "observations": {"6243": "valid"}}
+        invalid = [dict(summary, profile="power_candidates"), dict(summary, model="T8417"),
+                   dict(summary, token="private-token"),
+                   *[dict(summary, observations={"6243": value}) for value in [0, 12, "zero", "one", "private"]],
+                   dict(summary, observations={"6243": "valid", "2730": "valid"})]
+        for result in invalid:
+            with patch.object(TOOL, "request", return_value=json.dumps(result).encode()):
+                with self.assertRaisesRegex(TOOL.DiagnosticError, "unsupported summary"):
+                    TOOL.parameter_check("http://private.invalid", "private-token", target)
+        with patch.object(TOOL, "request") as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.parameter_check("http://private.invalid", "private-token", target, True)
+            request.assert_not_called()
+        with patch.object(TOOL, "request", side_effect=TOOL.DiagnosticRequestError(409)) as request:
+            with self.assertRaises(TOOL.DiagnosticError):
+                TOOL.parameter_check("http://private.invalid", "private-token", target)
+            self.assertEqual(request.call_count, 1)
+
     def test_state_check_requires_consent_before_loading_the_connection(self):
         """An omitted consent flag sends no read and accesses no stored credential."""
         with patch.object(TOOL.HELPERS, "gateway_connection") as connection, patch.object(TOOL, "request") as request, redirect_stderr(io.StringIO()):

@@ -412,6 +412,7 @@ def parameter_check(url: str, token: str, target: dict, device_list: bool = Fals
         "T8417": ("privacy_candidates", {"1035", "2001", "6250", "6271"}),
         "T8030": ("alarm_volume_candidate", {"1235"}),
         "T8910": ("motion_time_candidate", {"1605"}),
+        "T8170": ("s340_view_mode_candidate", {"6243"}),
     }
     model = target["model"]
     if model not in profiles:
@@ -424,7 +425,7 @@ def parameter_check(url: str, token: str, target: dict, device_list: bool = Fals
     result = json.loads(request(url + "/api/diagnostics/parameter-check", token, "POST", body, timeout=35))
     profile, fields = profiles[model]
     allowed = ({"missing", "unset", "recent", "older", "future", "invalid", "conflicting"} if model == "T8910"
-               else {"missing", "invalid", "conflicting", "valid"} if model == "T8030"
+               else {"missing", "invalid", "conflicting", "valid"} if model in {"T8030", "T8170"}
                else {"missing", "invalid", "conflicting", "zero", "one"})
     if (not isinstance(result, dict) or set(result) != ({"model", "profile", "observations", "source", "change"} if device_list
                                                        else {"model", "profile", "observations"})
