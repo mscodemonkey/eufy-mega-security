@@ -416,6 +416,37 @@ class DiagnosticBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(TOOL.DiagnosticError, "HTTP 409"):
                 TOOL.parameter_check("http://private.invalid", "private-token", {"model": "T8030", "serial": "private-station"})
             self.assertEqual(request.call_count, 1)
+
+    def test_parameter_refusal_prints_only_an_exact_closed_stage(self):
+        """Distinguish a refused read without exposing arbitrary gateway content."""
+        url = "http://private.invalid/api/diagnostics/parameter-check"
+        for stage in TOOL.PARAMETER_CHECK_STAGES:
+            error = HTTPError(url, 409, "private-message", {}, io.BytesIO(json.dumps({"stage": stage}).encode()))
+            with patch.object(TOOL, "build_opener") as opener:
+                opener.return_value.open.side_effect = error
+                with self.assertRaises(TOOL.DiagnosticRequestError) as caught:
+                    TOOL.request(url, "private-token", "POST", {"consent": True})
+            self.assertEqual(str(caught.exception), f"Gateway request failed (HTTP 409, state_check_stage={stage}).")
+            self.assertEqual(opener.return_value.open.call_count, 1)
+            self.assertTrue(error.closed)
+
+    def test_parameter_refusal_rejects_private_malformed_and_other_route_bodies(self):
+        """Malformed, oversized and unrelated HTTP errors keep only their status."""
+        endpoint = "http://private.invalid/api/diagnostics/parameter-check"
+        cases = [(endpoint, 409, value) for value in (
+            b'{"stage":"private-token"}', b'{"stage":"busy","token":"private-token"}',
+            b'{"stage":"busy","stage":"request"}', b'{"stage":["busy"]}',
+            b'[["stage","busy"]]', b'{', b'x' * 1025,
+        )] + [("http://private.invalid/other", 409, b'{"stage":"busy"}'),
+             (endpoint, 503, b'{"stage":"busy"}')]
+        for url, status, body in cases:
+            error = HTTPError(url, status, "private-message", {}, io.BytesIO(body))
+            with patch.object(TOOL, "build_opener") as opener:
+                opener.return_value.open.side_effect = error
+                with self.assertRaisesRegex(TOOL.DiagnosticRequestError, rf"^Gateway request failed \(HTTP {status}\)\.$"):
+                    TOOL.request(url, "private-token", "POST", {"consent": True})
+            self.assertEqual(opener.return_value.open.call_count, 1)
+            self.assertTrue(error.closed)
     """Exercise integrity, resource and private-file boundaries offline."""
 
     def test_valid_and_corrupt_media(self):
