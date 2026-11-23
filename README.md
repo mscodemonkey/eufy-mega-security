@@ -708,6 +708,8 @@ recovery remains unconfirmed. See [the diagnostic guide](docs/PRIVATE_DIAGNOSTIC
 
 ### Experimental model controls
 
+Exact T8410/type 31 attached to HomeBase 3 has opt-in one-step HA pan/tilt buttons. These require an authenticated Eufy account with camera access, API authentication and a ready HomeBase route. Movement borrows a ready gateway viewer connection on that HomeBase, addressing the target camera without restarting video. With no viewer, it uses the existing isolated model-control trial lifecycle. Viewer startup, stale bindings and conflicting operations are rejected; movement is never automatically retried. Standalone cameras and T8413/T8410C are excluded.
+
 An exact HomeBase 3 attached S340 has a separate, disabled-by-default [live-quality trial](docs/S340_LIVE_QUALITY.md). It exposes reported live preferences, including 3K, while actual capture dimensions and telephoto access remain unconfirmed.
 
 An exact HomeBase 3 attached T8171 has a disabled-by-default [live-quality control](docs/T8171_LIVE_QUALITY.md) for its current HA live connection. Its value expires when that connection ends and does not represent a saved camera setting.

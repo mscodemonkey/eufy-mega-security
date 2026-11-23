@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { panControllableDevice, type PanControllableDevice } from "./pan-controllable-registry.js";
 import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
@@ -4254,6 +4255,20 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
 
   /** Explain trial refusal without returning account, route, or key material. */
   modelControlTrialAdmission(serial: string): ModelControlTrialAdmission {
+    const legacy = this.#legacyModelControlTrialAdmission(serial);
+    const device = this.#devices.get(serial);
+    const Controller = device && panControllableDevice(device, ppcsStreamRoute(device, this.#devices));
+    if (!device || !Controller) return legacy;
+    const auxiliary = legacy.actions.filter(action => action !== "ptz");
+    if (this.#panDeviceReady(device)) return { actions: ["ptz", ...auxiliary] };
+    if (auxiliary.length) return { actions: auxiliary };
+    const accountDenied = !this.config.apiAuthenticationConfigured
+      || Controller.requiresOwnerAccount && (!device.adminUserId || !this.#client.isAuthenticatedUser(device.adminUserId));
+    return { actions: [], unavailableReason: accountDenied ? "owner_account_required" : "connection_key_unavailable" };
+  }
+
+  /** Legacy and auxiliary controls keep their independently qualified admission rules. */
+  #legacyModelControlTrialAdmission(serial: string): ModelControlTrialAdmission {
     if (this.#devices.get(serial) && isE21(this.#devices.get(serial)!)) return { actions: [], unavailableReason: "unsupported_identity" };
     if (!this.config.experimentalModelControls || this.#recordingClosing) return { actions: [], unavailableReason: "unsupported_identity" };
     const device = this.#devices.get(serial);
@@ -4344,6 +4359,12 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const request = parseModelControlTrial(input);
     if (request.action === "alarmState") return await this.#performAlarmStateRead(serial);
     if (request.action === "manualLight") return await this.#performManualLightTrial(serial, request, signal);
+    const panDevice = this.#devices.get(serial);
+    const PanController = panDevice && request.action === "ptz" ? this.#panDeviceReady(panDevice) : null;
+    if (panDevice && PanController && request.action === "ptz") {
+      await this.#executeRegisteredPan(panDevice, request.direction, PanController, { allowViewer: false, signal });
+      return { outcome: "acknowledged", physicalConfirmationRequired: true };
+    }
     if (!this.modelControlTrials(serial).includes(request.action)) throw new Error("Experimental model control is unavailable");
     const device = this.#devices.get(serial)!;
     const route = ppcsStreamRoute(device, this.#devices)!;
@@ -6272,6 +6293,16 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     if (device && isE21(device)) throw new E21ControlError("admission");
   }
 
+  /** Registered devices qualify identity; the provider retains authorization and route readiness. */
+  #panDeviceReady(device: MegaInventoryDevice): PanControllableDevice | null {
+    if (this.#recordingClosing || !this.config.experimentalModelControls || !this.config.apiAuthenticationConfigured
+      || !device.adminUserId || !this.#client.isAuthenticated
+      || !isPpcsRouteReady(device, this.#devices, new Set(this.#dskKeys.keys()))) return null;
+    const Controller = panControllableDevice(device, ppcsStreamRoute(device, this.#devices));
+    if (Controller?.requiresOwnerAccount && !this.#client.isAuthenticatedUser(device.adminUserId)) return null;
+    return Controller;
+  }
+
   /** Require opt-in, API authentication and the current owner's exact direct C37 route. */
   #c37ControlRouteReady(device: MegaInventoryDevice): boolean {
     const route = ppcsStreamRoute(device, this.#devices);
@@ -6572,7 +6603,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         && device.adminUserId !== null
         && ppcsStreamRoute(device, this.#devices)?.homeBaseAttached === true
         && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
-      directionalPanControlSupported: this.#c37ControlRouteReady(device),
+      directionalPanControlSupported: this.#c37ControlRouteReady(device) || this.#panDeviceReady(device) !== null,
       experimentalQuickResponseSupported: this.config.experimentalModelControls === true
         && this.config.apiAuthenticationConfigured === true && this.#client.authenticatedBinding() !== null
         && route !== null && isQuickResponseRoute(this.#modelTrialRoute(device, route)) && isPpcsRouteReady(device, this.#devices, dskPeerSerials),
@@ -6795,15 +6826,147 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     }
   }
 
-  /** Send one exact C37 direction through the same owned path as its diagnostic trial. */
+  /** Capture admission and binding once; recheck after every asynchronous boundary. */
+  #panOwnershipGuard(device: MegaInventoryDevice, Controller: PanControllableDevice, signal?: AbortSignal): () => void {
+    const generation = this.#startupGeneration;
+    const peer = ppcsStreamRoute(device, this.#devices)!.peer;
+    return () => {
+      const live = this.#devices.get(device.serial), livePeer = this.#devices.get(peer.serial);
+      if (signal?.aborted || generation !== this.#startupGeneration || !live || !livePeer) throw new Error("Pan route changed or retired");
+      const cameraUnchanged = !inventoryBindingChanged(device, live);
+      const peerUnchanged = !inventoryBindingChanged(peer, livePeer)
+        && peer.p2pDid === livePeer.p2pDid && peer.p2pConnection === livePeer.p2pConnection;
+      if (!cameraUnchanged || !peerUnchanged || this.#panDeviceReady(live) !== Controller) throw new Error("Pan route changed or retired");
+    };
+  }
+
+  /** A queued movement owns its camera's queue entry, but no other outstanding operation. */
+  #assertPanPeerIdle(device: MegaInventoryDevice, queued: boolean): void {
+    const peer = ppcsStreamRoute(device, this.#devices)!.peer;
+    const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+    const controls = [this.#cameraOperations, this.#cameraCapabilityOperations, this.#streamingQualityOperations,
+      this.#audioRecordingOperations, this.#motionOperations, this.#nightVisionOperations, this.#guardModeOperations,
+      this.#lightOperations, this.#cameraSirenOperations];
+    const peerBusy = this.#recordingPeerReserved(device.serial) || this.#stationOperations.has(peer.serial);
+    const cameraBusy = related.some(row => this.#streamStarts.has(row.serial) || controls.some(map => map.has(row.serial))
+      || this.#panControlOperations.has(row.serial) && !(queued && row.serial === device.serial));
+    if (this.#localMotionAborters.size || peerBusy || cameraBusy) throw new Error("Wait for camera operations before moving the camera");
+  }
+
+  /** Null means no viewer exists; an unsafe viewer rejects instead of opening a competing connection. */
+  #tryPanUsingHomeBaseViewer(device: MegaInventoryDevice, direction: "left" | "right" | "up" | "down",
+    Controller: PanControllableDevice, checkRoute: () => void, queued: boolean): Promise<void> | null {
+    const route = ppcsStreamRoute(device, this.#devices)!;
+    const peer = route.peer;
+    const related = [...this.#devices.values()].filter(row => (row.parentSerial || row.serial) === peer.serial || row.serial === peer.serial);
+    const viewers = related.flatMap(source => {
+      const session = this.#ppcsStreams.get(source.serial);
+      if (!session || session.stats.closeReason !== "open") return [];
+      const binding = { stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+        channel: source.channel!, accountId: source.adminUserId };
+      return [{ source, session, binding }];
+    });
+    if (!viewers.length) return null;
+    this.#assertPanPeerIdle(device, queued);
+    const viewer = viewers.find(({ session, binding }) => session.hasHomeBaseViewerBinding(binding));
+    if (!viewer) return Promise.reject(new Error("Wait for the HomeBase viewer to become ready"));
+    const { source, session, binding } = viewer;
+    const current = (): void => {
+      checkRoute();
+      const liveSource = this.#devices.get(source.serial);
+      if (!liveSource || inventoryBindingChanged(source, liveSource)) throw new Error("HomeBase viewer control route changed or retired");
+      const viewerStillOwned = this.#ppcsStreams.get(source.serial) === session && session.hasHomeBaseViewerBinding(binding);
+      if (!viewerStillOwned) {
+        throw new Error("HomeBase viewer control route changed or retired");
+      }
+    };
+    const release = this.#reserveTrialPeer(peer.serial);
+    return (async () => {
+      try {
+        current();
+        await session.panCamera(direction, current, transport => new Controller(transport, device.channel!), device.channel!, Controller.execution.encryption);
+        current();
+      }
+      finally { release(); }
+    })();
+  }
+
+  /** Execute the registered device's connection policy without inspecting its model. */
+  #executeRegisteredPan(device: MegaInventoryDevice, direction: "left" | "right" | "up" | "down", Controller: PanControllableDevice,
+    options: { allowViewer: boolean; queued?: boolean; signal?: AbortSignal | undefined }): Promise<void> {
+    const current = this.#panOwnershipGuard(device, Controller, options.signal);
+    current();
+    const queued = options.queued === true;
+    if (options.allowViewer && Controller.execution.connection === "homebase-viewer-or-isolated") {
+      const borrowed = this.#tryPanUsingHomeBaseViewer(device, direction, Controller, current, queued);
+      if (borrowed) return borrowed;
+    }
+    this.#assertPanPeerIdle(device, queued);
+    const route = ppcsStreamRoute(device, this.#devices)!;
+    const peer = route.peer;
+    const activeViewer = [...this.#ppcsStreams.keys()].some(serial =>
+      (this.#devices.get(serial)?.parentSerial || serial) === peer.serial);
+    if (activeViewer) return Promise.reject(new Error("Close live view before using pan controls"));
+    const release = this.#reserveTrialPeer(peer.serial);
+    return (async () => {
+      let session: FirstPartyPpcsSession | undefined;
+      try {
+        if (Controller.execution.refreshInventory) await this.#refreshInventoryReads();
+        current();
+        const dsk = await this.#dskKey(peer.serial);
+        current();
+        if (!dsk) throw new Error("Pan session keys unavailable");
+        session = new FirstPartyPpcsSession({ stationSerial: peer.serial, p2pDid: peer.p2pDid!, appConnection: peer.p2pConnection!,
+          localAddress: homeBaseLocalAddress(peer, this.config.homeBaseLocalAddresses ?? []), dskKey: dsk.key,
+          channel: device.channel!, cameraModel: device.model, cameraDeviceType: device.deviceType,
+          stationModel: peer.model, stationDeviceType: peer.deviceType, accountId: device.adminUserId!,
+          homeBaseAttached: route.homeBaseAttached, purpose: "control", modelControlTrial: true, maxSeconds: 40,
+          resolveCipherKey: cipherId => this.#resolveCipherKey(cipherId, peer) });
+        this.#trialSessions.set(peer.serial, session);
+        await session.start();
+        current();
+        await session.panCamera(direction, current, transport => new Controller(transport, device.channel!), device.channel!, Controller.execution.encryption);
+        current();
+      } finally {
+        try { session?.close(); await session?.waitUntilClosed(); }
+        finally {
+          if (this.#trialSessions.get(peer.serial) === session) this.#trialSessions.delete(peer.serial);
+          release();
+        }
+      }
+    })();
+  }
+
+  /** Queue only when the device policy requires it, sharing the existing control queue. */
+  #scheduleRegisteredPan(device: MegaInventoryDevice, direction: "left" | "right" | "up" | "down", Controller: PanControllableDevice): Promise<void> {
+    if (Controller.execution.scheduling === "exclusive") return this.#executeRegisteredPan(device, direction, Controller, { allowViewer: true });
+    const current = this.#panOwnershipGuard(device, Controller);
+    const previous = this.#panControlOperations.get(device.serial) ?? Promise.resolve();
+    const operation = previous.catch(() => undefined).then(() => {
+      current();
+      return this.#executeRegisteredPan(device, direction, Controller, { allowViewer: true, queued: true });
+    });
+    this.#panControlOperations.set(device.serial, operation);
+    void operation.finally(() => {
+      if (this.#panControlOperations.get(device.serial) === operation) this.#panControlOperations.delete(device.serial);
+    }).catch(() => undefined);
+    return operation;
+  }
+
+  /** Select a registered controller; legacy unregistered controls retain their original path. */
   panCamera(serial: string, direction: "left" | "right" | "up" | "down"): Promise<void> {
     this.#assertRtcPreparationIdle();
     this.#assertLegacyCamera(serial);
-    this.#assertNoModelTrial(serial);
     const selected = this.#devices.get(serial);
+    const Controller = selected && this.#panDeviceReady(selected);
+    if (selected && Controller && ["left", "right", "up", "down"].includes(direction)) {
+      if (Controller.execution.scheduling === "exclusive" || !this.#panControlOperations.has(serial)) this.#assertNoModelTrial(serial);
+      return this.#scheduleRegisteredPan(selected, direction, Controller);
+    }
     if (!["left", "right", "up", "down"].includes(direction) || !selected || !this.#c37ControlRouteReady(selected)) {
       return Promise.reject(new Error("Direct camera movement is unavailable"));
     }
+    this.#assertNoModelTrial(serial);
     return this.#queuePanControl(serial, "pan", async (session, current, observe) => {
       const device = this.#devices.get(serial)!;
       const route = ppcsStreamRoute(device, this.#devices)!;
