@@ -140,6 +140,33 @@ for (const codec of ["h265", "h264"] as const) {
   });
 }
 
+for (const codec of ["h264", "h265"] as const) {
+  test(`delayed ${codec} AAC reaches HA's opening packet inspection before the buffered video`, async () => {
+    const h = harness(codec, 12_000);
+    const frames = video(codec, 90), sound = audio(4);
+    const started = h.clock.now;
+    for (let index = 0; index < 40; index++) {
+      h.clock.now = started + index * 1_000 / 15;
+      h.muxer.videoInput.write(frames[index]!);
+    }
+    h.clock.now = started + 2_700;
+    h.muxer.acceptAudio(sound[0]!);
+    await play(h, frames.slice(40), sound.slice(1), 64);
+    h.muxer.close();
+    const data = h.output(), packets = probe(data).packets;
+    const firstAudio = packets.findIndex(packet => packet.codec_type === "audio");
+    assert.ok(firstAudio >= 0 && firstAudio < 20, `HA cannot detect ADTS at packet ${firstAudio}`);
+    const videoTimes = packets.filter(packet => packet.codec_type === "video").map(packet => Number(packet.pts_time));
+    const audioTimes = packets.filter(packet => packet.codec_type === "audio").map(packet => Number(packet.pts_time));
+    assert.equal(videoTimes.length, frames.length);
+    assert.ok(Math.abs(audioTimes[0]! - videoTimes[0]! - 2.7) < 0.002);
+    for (const times of [videoTimes, audioTimes]) assert.ok(times.every((time, index) => index === 0 || time > times[index - 1]!));
+    decodes(data);
+    assert.equal(h.closes(), 1);
+    assert.deepEqual(h.failures, []);
+  });
+}
+
 test("a muted camera starts after the bound without an audio track, and later audio is ignored", async () => {
   const h = harness("h265", 30);
   const frames = video("h265");
