@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.281
+
+- Fix live video startup with receive audio when buffered video prevents Home Assistant from detecting the incoming AAC format. Preserve video order and media timing for H.264 and H.265. Confirmation on the affected cameras is still pending.
+- Keep a safe failure category when the saved-connection state-check helper receives a refused read, while discarding response contents and retaining its read-only safeguards.
+
 ## 0.1.280
 
 - Add an optional planned live-view handover for actively watched E330 Professional and C31 cameras on HomeBase 3. It starts off and preserves recording, preload and shared-source protection. The generated-feed HA checks passed, while the reported hardware and browser freeze still need confirmation.
