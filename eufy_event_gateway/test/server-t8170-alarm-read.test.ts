@@ -21,7 +21,7 @@ test("T8170 HTTP closes result shapes and masks arbitrary private errors", async
   const directory = await mkdtemp(join(tmpdir(), "alarm-http-")), state = new GatewayState();
   state.registerCamera({ serial: "fixture", name: "Synthetic", model: "T8170", stationSerial: "fixture", streamSupported: false, doorbellSupported: false });
   const before = state.getCamera("fixture");
-  let value: unknown = { outcome: "decoded", parameterCount: 2, guardMode: 63 }, fail = false;
+  let value: unknown = { outcome: "decoded", parameterCount: 2, guardMode: 63, workingMode: 1 }, fail = false;
   const provider = { modelControlTrials: () => ["alarmState"], performModelControlTrial: async () => {
     if(fail) throw Error("private-serial-owner-key"); return value;
   } } as unknown as CameraProvider;
@@ -34,6 +34,7 @@ test("T8170 HTTP closes result shapes and masks arbitrary private errors", async
     assert.deepEqual(await response.json(), value);
     for(const malformed of [{ outcome: "decoded", parameterCount: 2, private: "private-serial-owner-key" },
       { outcome: "decoded", parameterCount: -1 }, { outcome: "decoded", parameterCount: 1, guardMode: 7 },
+      { outcome: "decoded", parameterCount: 1, workingMode: "1" },
       { outcome: "unavailable", frames: 0, parseStage: {}, keyReady: false }]) {
       value = malformed; assert.deepEqual(await (await fetch(url, options)).json(), unavailable);
     }

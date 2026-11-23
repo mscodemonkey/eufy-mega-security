@@ -2360,19 +2360,27 @@ export class FirstPartyPpcsSession {
       owner.parseStage = "invalid_schema";
       if (!isRecord(row) || !Array.isArray(row.params)) return;
       if (row.params.length > 65535) { oversize(); return; }
-      const types = new Set<number>(); let guardRows = 0; let guardMode: number | undefined;
+      const types = new Set<number>();
+      const modeRows = new Map<number, number | undefined>();
       for (const param of row.params) {
         if (!isRecord(param) || !Number.isSafeInteger(param.param_type)) continue;
         types.add(param.param_type as number);
-        if (param.param_type !== 1224) continue;
-        guardRows++;
+        const type = param.param_type as number;
+        if (type !== 1224 && type !== 1151) continue;
         const value = param.param_value;
         const parsed = typeof value === "number" ? value : typeof value === "string" && /^(?:[0-6]|47|63)$/.test(value) ? Number(value) : NaN;
-        if (!Object.is(parsed, -0) && [0,1,2,3,4,5,6,47,63].includes(parsed)) guardMode = parsed;
+
+        // A duplicate invalidates only its own observation, even if both values agree.
+        const valid = !modeRows.has(type) && !Object.is(parsed, -0) && [0,1,2,3,4,5,6,47,63].includes(parsed);
+        modeRows.set(type, valid ? parsed : undefined);
       }
+
+      // The app treats 1224 as the selected mode and 1151 as the mode in effect.
+      const guardMode = modeRows.get(1224), workingMode = modeRows.get(1151);
       owner.parseStage = "parsed";
       this.#finishAlarmRead("unavailable", { outcome: "decoded", parameterCount: types.size,
-        ...(guardRows === 1 && guardMode !== undefined ? { guardMode } : {}) });
+        ...(guardMode === undefined ? {} : { guardMode }),
+        ...(workingMode === undefined ? {} : { workingMode }) });
     } catch { return; }
   }
 

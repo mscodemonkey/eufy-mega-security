@@ -56,10 +56,12 @@ export interface ModelControlWriteTrialResult {
 
 /**
  * A private, uncorrelated observation from the explicit T8170 read experiment.
- * It carries no physical-confirmation flag and never establishes an arming change.
+ * guardMode is the selected mode retained for existing clients. workingMode
+ * is the mode in effect reported by the separate field. Either can be absent.
+ * Neither observation establishes an arming change.
  */
 export type AlarmStateTrialResult = (
-  | { readonly outcome: "decoded"; readonly parameterCount: number; readonly guardMode?: number }
+  | { readonly outcome: "decoded"; readonly parameterCount: number; readonly guardMode?: number; readonly workingMode?: number }
   | { readonly outcome: "timeout" | "unavailable"; readonly frames: number;
       readonly parseStage: "none" | "invalid_json" | "invalid_schema" | "parsed"; readonly keyReady: boolean }
 ) & { readonly physicalConfirmationRequired?: never; readonly stoppedEarly?: never; readonly acknowledgementReceived?: never };
@@ -97,12 +99,15 @@ export function closedAlarmStateResult(value: unknown): AlarmStateTrialResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) return unavailable;
   const row = value as Record<string, unknown>, keys = Object.keys(row);
   const count = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 65535 && !Object.is(n, -0);
-  if (row.outcome === "decoded" && keys.every(k => ["outcome", "parameterCount", "guardMode"].includes(k))
-    && keys.length === (Object.hasOwn(row, "guardMode") ? 3 : 2) && count(row.parameterCount)
-    && (!Object.hasOwn(row, "guardMode") || (typeof row.guardMode === "number" && !Object.is(row.guardMode, -0)
-      && [0,1,2,3,4,5,6,47,63].includes(row.guardMode)))) {
+  const modeFields = ["guardMode", "workingMode"] as const;
+  const reported = modeFields.filter(key => Object.hasOwn(row, key));
+  if (row.outcome === "decoded" && keys.every(k => ["outcome", "parameterCount", ...modeFields].includes(k))
+    && keys.length === 2 + reported.length && count(row.parameterCount)
+    && reported.every(key => typeof row[key] === "number" && !Object.is(row[key], -0)
+      && [0,1,2,3,4,5,6,47,63].includes(row[key]))) {
     return { outcome: "decoded", parameterCount: row.parameterCount,
-      ...(typeof row.guardMode === "number" ? { guardMode: row.guardMode } : {}) };
+      ...(typeof row.guardMode === "number" ? { guardMode: row.guardMode } : {}),
+      ...(typeof row.workingMode === "number" ? { workingMode: row.workingMode } : {}) };
   }
   if ((row.outcome === "timeout" || row.outcome === "unavailable") && keys.length === 4
     && keys.every(k => ["outcome", "frames", "parseStage", "keyReady"].includes(k)) && count(row.frames)

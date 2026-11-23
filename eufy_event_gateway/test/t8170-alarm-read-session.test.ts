@@ -90,8 +90,8 @@ for (const channel of [0, 255]) test(`one read query accepts channel ${channel} 
   const h = await syntheticSession(context);
   try {
     const before = { mode: h.session.stats.standaloneGuardMode, types: h.session.stats.cameraInfoParamTypes, battery: h.session.stats.batteryHistory };
-    h.onQuery(() => h.incoming(1103, channel, Buffer.from(JSON.stringify({ params: [{ param_type: 1224, param_value: "63" }, { param_type: 3100, param_value: {} }] })), 0, 0));
-    assert.deepEqual(await h.session.readT8170AlarmState(), { outcome: "decoded", parameterCount: 2, guardMode: 63 });
+    h.onQuery(() => h.incoming(1103, channel, Buffer.from(JSON.stringify({ params: [{ param_type: 1224, param_value: "63" }, { param_type: 1151, param_value: 1 }] })), 0, 0));
+    assert.deepEqual(await h.session.readT8170AlarmState(), { outcome: "decoded", parameterCount: 2, guardMode: 63, workingMode: 1 });
     assert.deepEqual(h.outgoing, [1100, 1103]);
     assert.deepEqual(h.queries, [Buffer.from("040000000100ff000000ff000000", "hex")]);
     assert.deepEqual(h.queries[0], buildC31CameraInfoQueryPayload());
@@ -121,8 +121,8 @@ test("duplicate nonprimitive guard rows disqualify mode while all distinct integ
   try {
     h.onQuery(() => h.incoming(1103, 0, Buffer.from(JSON.stringify({ params: [
       { param_type: 1224, param_value: 1 }, { param_type: 1224, param_value: {} }, { param_type: 2, param_value: [] },
-      { param_type: 3, param_value: null }, { param_type: "4", param_value: 0 }, { param_type: 2.5, param_value: true }] })), 0, 0));
-    assert.deepEqual(await h.session.readT8170AlarmState(), { outcome: "decoded", parameterCount: 3 });
+      { param_type: 1151, param_value: "0" }, { param_type: "4", param_value: 0 }, { param_type: 2.5, param_value: true }] })), 0, 0));
+    assert.deepEqual(await h.session.readT8170AlarmState(), { outcome: "decoded", parameterCount: 3, workingMode: 0 });
   } finally { h.session.close(); }
 });
 

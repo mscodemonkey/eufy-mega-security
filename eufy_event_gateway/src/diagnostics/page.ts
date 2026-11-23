@@ -266,11 +266,15 @@ function alarmReadText(row) {
   const invalid = 'Read unavailable. The attempt is inconclusive.';
   if(!row || typeof row !== 'object' || Array.isArray(row)) return invalid;
   const keys = Object.keys(row), count = n => Number.isInteger(n) && n >= 0 && n <= 65535 && !Object.is(n,-0);
-  if(row.outcome === 'decoded' && keys.length === (Object.hasOwn(row,'guardMode') ? 3 : 2)
-    && keys.every(k => ['outcome','parameterCount','guardMode'].includes(k)) && count(row.parameterCount)
-    && (!Object.hasOwn(row,'guardMode') || (!Object.is(row.guardMode,-0) && [0,1,2,3,4,5,6,47,63].includes(row.guardMode)))) {
+  const modeFields = ['guardMode','workingMode'];
+  const reported = modeFields.filter(key => Object.hasOwn(row,key));
+  if(row.outcome === 'decoded' && keys.length === 2 + reported.length
+    && keys.every(k => ['outcome','parameterCount',...modeFields].includes(k)) && count(row.parameterCount)
+    && reported.every(key => !Object.is(row[key],-0) && [0,1,2,3,4,5,6,47,63].includes(row[key]))) {
     return 'Decoded ' + row.parameterCount + ' parameter types. This is uncorrelated and does not prove the query was answered.'
-      + (Object.hasOwn(row,'guardMode') ? ' Guard mode ' + row.guardMode + ' (mapping unconfirmed).' : '') + ' Share the comparison privately.';
+      + (Object.hasOwn(row,'guardMode') ? ' Selected mode ' + row.guardMode + ' (mapping unconfirmed).' : '')
+      + (Object.hasOwn(row,'workingMode') ? ' Mode in effect ' + row.workingMode + ' (mapping unconfirmed).' : '')
+      + ' Share the comparison privately.';
   }
   if(!['timeout','unavailable'].includes(row.outcome) || keys.length !== 4
     || !keys.every(k => ['outcome','frames','parseStage','keyReady'].includes(k)) || !count(row.frames)
