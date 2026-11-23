@@ -260,5 +260,95 @@ class HlsActivityTest(unittest.IsolatedAsyncioTestCase):
             observer.close()
 
 
+    async def test_wait_timeline_brackets_worker_errors_and_preserves_part_timeout(self):
+        """A worker change belongs to this wait, without becoming its claimed cause."""
+        value = output()
+        counts = {"start_worker": 1, "worker_error": 0, "retry_timeout": 0, "source": "PRIVATE"}
+        seen = []
+
+        async def part_recv(timeout=None):
+            seen.append(timeout)
+            counts.update(start_worker=2, worker_error=1, retry_timeout=10)
+            return False
+
+        value.part_recv = part_recv
+        observer = MODULE.HlsViewActivity.install(value, lambda: False, lambda: counts)
+        try:
+            self.assertIs(await value.part_recv(0.25), False)
+            result = observer.diagnostic()["wait_timeline"]
+            self.assertEqual(seen, [0.25])
+            self.assertTrue(result["started_at"].endswith("+00:00"))
+            row = result["observations"][0]
+            self.assertEqual((row["kind"], row["outcome"]), ("part", "empty"))
+            self.assertEqual((row["worker_errors_before"], row["worker_errors_after"]), (0, 1))
+            self.assertEqual(row["retry_seconds_after"], 10)
+            self.assertNotIn("PRIVATE", str(result))
+            row["worker_errors_after"] = 999
+            self.assertEqual(observer.diagnostic()["wait_timeline"]["observations"][0]["worker_errors_after"], 1)
+        finally:
+            observer.close()
+        self.assertIs(value.part_recv, part_recv)
+
+    async def test_wait_timeline_is_capped_and_keeps_original_failure_and_cancellation(self):
+        """Only fixed observations survive, with the exact HA exceptions propagated."""
+        value = output()
+        failure = RuntimeError("PRIVATE")
+        cancellation = asyncio.CancelledError("PRIVATE")
+        calls = 0
+
+        async def recv():
+            nonlocal calls
+            calls += 1
+            if calls == 66:
+                raise failure
+            if calls == 67:
+                raise cancellation
+            return True
+
+        value.recv = recv
+        observer = MODULE.HlsViewActivity.install(value, lambda: False)
+        try:
+            for _ in range(65):
+                self.assertIs(await value.recv(), True)
+            for expected in (failure, cancellation):
+                with self.assertRaises(type(expected)) as caught:
+                    await value.recv()
+                self.assertIs(caught.exception, expected)
+            result = observer.diagnostic()["wait_timeline"]
+            self.assertEqual(len(result["observations"]), 64)
+            self.assertEqual(result["omitted"], 3)
+            self.assertEqual([row["outcome"] for row in result["observations"][-2:]], ["failed", "cancelled"])
+            self.assertNotIn("PRIVATE", str(result))
+        finally:
+            observer.close()
+
+    async def test_retirement_freezes_wait_timeline_and_never_wraps_another_output(self):
+        """An old completion cannot alter a retained or replacement output's record."""
+        value, other = output(), output()
+        waiting, finish = asyncio.Event(), asyncio.Event()
+
+        async def recv():
+            waiting.set()
+            await finish.wait()
+            return True
+
+        value.recv = other.recv = recv
+
+        def broken_reader():
+            raise RuntimeError("PRIVATE")
+
+        observer = MODULE.HlsViewActivity.install(value, lambda: False, broken_reader)
+        task = asyncio.create_task(value.recv())
+        await waiting.wait()
+        observer.close()
+        frozen = observer.diagnostic()["wait_timeline"]
+        finish.set()
+        self.assertIs(await task, True)
+        self.assertIs(other.recv, recv)
+        self.assertIs(value.recv, recv)
+        self.assertEqual(observer.diagnostic()["wait_timeline"], frozen)
+        self.assertNotIn("PRIVATE", str(observer.diagnostic()))
+
+
 if __name__ == "__main__":
     unittest.main()

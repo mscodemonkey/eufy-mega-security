@@ -426,6 +426,14 @@ request count, quiet seconds and expiry state. These counters contain no tokens,
 URLs or viewer identities and do not count people watching. Local/synthetic
 validation does not establish the reporter's physical HomeBase handoff.
 
+The retained `wait_timeline` belongs to one HLS output. It includes its UTC
+installation time and up to 64 completed segment or part waits, with fixed
+outcomes and existing HA worker counters sampled before and after each wait.
+An increased worker-error counter places an error within that wait, but does
+not establish that it caused the wait. These observations do not measure HTTP
+response completion, network delivery or when the browser displays video.
+They require no new recording, camera setting or arranged timing series.
+
 ## S330 video receive timeline
 
 For standalone 4G LTE Cam S330 T86P2, type 111, the existing private capture
