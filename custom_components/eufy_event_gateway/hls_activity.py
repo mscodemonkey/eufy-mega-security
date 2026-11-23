@@ -1,7 +1,7 @@
 """Observe one HA HLS output and retire its unused worker through HA's timer.
 
 HA owns HTTP handlers, worker shutdown and recording/preload decisions. This
-observer owns a stream-local quiet timer and content-free segment-wait counters.
+observer owns a stream-local quiet timer and content-free segment/part waits.
 The gateway protects the upstream HTTP response until HA actually closes it,
 including during cleanup. Diagnostics consume retained cleanup and wait timings.
 """
@@ -9,6 +9,7 @@ including during cleanup. Diagnostics consume retained cleanup and wait timings.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timezone
 import inspect
@@ -23,11 +24,15 @@ class HlsViewActivity:
     also schedules an earlier quiet check, allowing HA to close its retained
     worker after the person stops watching. Unsupported contracts keep HA's
     original timeout. Public segment waits retain their original outcomes and
-    cancellation while the observer records aggregate timings. Global handlers
-    and gateway admission remain owned by HA and the gateway respectively.
+    cancellation while the observer records aggregate timings and at most 64
+    completed waits. An optional public stream reader supplies worker counters
+    before and after each wait. Close releases that reader and freezes the
+    timeline. Global handlers and gateway admission remain owned by HA and the
+    gateway respectively.
     """
 
-    def __init__(self, output: Any, allowed: Callable[[], bool], quiet_seconds: float) -> None:
+    def __init__(self, output: Any, allowed: Callable[[], bool], quiet_seconds: float,
+                 stream_diagnostics: Callable[[], Any] | None = None) -> None:
         """Own the output's wrapper and quiet deadline, leaving HA state with HA."""
         self.output = output
         self.expiring = False
@@ -45,6 +50,13 @@ class HlsViewActivity:
         self._wrapped_cleanup: Callable[[], None] | None = None
         self._recv = None
         self._wrapped_recv = None
+        self._part_recv = None
+        self._wrapped_part_recv = None
+        self._stream_diagnostics = stream_diagnostics
+        self._observation_started_at = datetime.now(timezone.utc).isoformat()
+        self._wait_observations: deque[dict[str, Any]] = deque(maxlen=64)
+        self._wait_count = 0
+        self._completed_wait_count = 0
         self._created_at = self._loop.time()
         self._segment_waits = 0
         self._segment_waits_completed = 0
@@ -55,7 +67,8 @@ class HlsViewActivity:
         self._two_segments_ready: float | None = None
 
     @classmethod
-    def install(cls, output: Any, allowed: Callable[[], bool]) -> HlsViewActivity | None:
+    def install(cls, output: Any, allowed: Callable[[], bool],
+                stream_diagnostics: Callable[[], Any] | None = None) -> HlsViewActivity | None:
         """Attach only to the reviewed HA public output and timer contract.
 
         The quiet deadline exceeds both normal segment cadence and a pending
@@ -79,7 +92,7 @@ class HlsViewActivity:
                 return None
         except Exception:
             return None
-        observer = cls(output, allowed, max(4.0, 2 * duration, part_timeout + 2))
+        observer = cls(output, allowed, max(4.0, 2 * duration, part_timeout + 2), stream_diagnostics)
 
         def awake() -> None:
             """Keep HA's ordinary timer and observe a real part or segment request."""
@@ -122,16 +135,20 @@ class HlsViewActivity:
             async def receive() -> bool:
                 """Measure HA's existing segment wait without changing its outcome."""
                 started = observer._loop.time()
+                wait = observer._begin_wait("segment", started)
+                outcome = "failed"
                 observer._segment_waits = min(2**31 - 1, observer._segment_waits + 1)
                 try:
                     result = await recv()
                 except asyncio.CancelledError:
+                    outcome = "cancelled"
                     observer._segment_waits_cancelled = min(2**31 - 1, observer._segment_waits_cancelled + 1)
                     raise
                 except Exception:
                     observer._segment_waits_failed = min(2**31 - 1, observer._segment_waits_failed + 1)
                     raise
                 else:
+                    outcome = "ready" if result is True else "empty" if result is False else "returned"
                     observer._segment_waits_completed = min(2**31 - 1, observer._segment_waits_completed + 1)
                     if result:
                         elapsed = observer._loop.time() - observer._created_at
@@ -145,6 +162,7 @@ class HlsViewActivity:
                     return result
                 finally:
                     observer._segment_wait_max = max(observer._segment_wait_max, observer._loop.time() - started)
+                    observer._finish_wait(wait, started, outcome)
 
             try:
                 output.recv = receive
@@ -152,7 +170,67 @@ class HlsViewActivity:
                 observer._wrapped_recv = receive
             except (AttributeError, TypeError):
                 pass
+
+        # HA passes a timeout for part waits. Forward it unchanged and observe
+        # only this output, leaving HTTP handlers and worker retries with HA.
+        try:
+            part_recv = getattr(output, "part_recv", None)
+        except Exception:
+            part_recv = None
+        if inspect.iscoroutinefunction(part_recv):
+            async def receive_part(*args: Any, **kwargs: Any) -> bool:
+                """Observe an existing HA part wait without changing its timeout or result."""
+                started = observer._loop.time()
+                wait = observer._begin_wait("part", started)
+                outcome = "failed"
+                try:
+                    result = await part_recv(*args, **kwargs)
+                    outcome = "ready" if result is True else "empty" if result is False else "returned"
+                    return result
+                except asyncio.CancelledError:
+                    outcome = "cancelled"
+                    raise
+                finally:
+                    observer._finish_wait(wait, started, outcome)
+
+            try:
+                output.part_recv = receive_part
+                observer._part_recv = part_recv
+                observer._wrapped_part_recv = receive_part
+            except (AttributeError, TypeError):
+                pass
         return observer
+
+    def _worker_sample(self, suffix: str) -> dict[str, int | float]:
+        try:
+            values = self._stream_diagnostics() if self._stream_diagnostics is not None else None
+            if type(values) is not dict:
+                return {}
+            result = {}
+            for key, field in (("start_worker", "worker_starts"), ("worker_error", "worker_errors")):
+                value = values.get(key)
+                if type(value) is int and 0 <= value <= 2**31 - 1:
+                    result[f"{field}_{suffix}"] = value
+            value = values.get("retry_timeout")
+            if type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 86400:
+                result[f"retry_seconds_{suffix}"] = value
+            return result
+        except Exception:
+            return {}
+
+    def _begin_wait(self, kind: str, started: float) -> dict[str, Any]:
+        self._wait_count = min(2**31 - 1, self._wait_count + 1)
+        return {"wait": self._wait_count, "kind": kind,
+                "started_seconds": round(min(86400, max(0, started - self._created_at)), 3),
+                **self._worker_sample("before")}
+
+    def _finish_wait(self, wait: dict[str, Any], started: float, outcome: str) -> None:
+        if self._closed:
+            return
+        self._completed_wait_count = min(2**31 - 1, self._completed_wait_count + 1)
+        self._wait_observations.append({**wait, "outcome": outcome,
+            "duration_seconds": round(min(86400, max(0, self._loop.time() - started)), 3),
+            **self._worker_sample("after")})
 
     def _request(self) -> None:
         if self._closed or self.expiring:
@@ -191,9 +269,18 @@ class HlsViewActivity:
         Ready times start at observer installation and are sampled when a wait
         returns. They do not measure HTTP response completion or displayed video,
         and may follow the actual arrival of an already buffered segment.
+        The UTC installation anchor and monotonic wait offsets locate this output
+        lifetime. Worker counter changes bracket events, without proving cause.
+        Durations and offsets saturate at 24 hours. Missing counters stay absent.
         """
         result = {"installed": not self._closed, "requests": self._requests,
                   "quiet_seconds": self._quiet_seconds, "expiring": self.expiring}
+        if self._recv is not None or self._part_recv is not None:
+            result["wait_timeline"] = {
+                "started_at": self._observation_started_at,
+                "observations": [dict(row) for row in self._wait_observations],
+                "omitted": max(0, self._completed_wait_count - len(self._wait_observations)),
+            }
         try:
             settings = self.output.stream_settings
             for key, value in (
@@ -231,6 +318,7 @@ class HlsViewActivity:
         if self._closed:
             return
         self._closed = True
+        self._stream_diagnostics = None
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
@@ -241,5 +329,7 @@ class HlsViewActivity:
                 self.output.cleanup = self._cleanup
             if self._wrapped_recv is not None and self.output.recv is self._wrapped_recv:
                 self.output.recv = self._recv
+            if self._wrapped_part_recv is not None and self.output.part_recv is self._wrapped_part_recv:
+                self.output.part_recv = self._part_recv
         except (AttributeError, TypeError):
             pass

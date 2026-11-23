@@ -508,7 +508,7 @@ class EufyGatewayCamera(EufyGatewayEntity, Camera):
                                 and set(outputs) == {"hls"} and outputs["hls"] is provider
                                 and (_view_of(stream.source) or "").startswith("hls1_"))
 
-                    self._hls_activity = HlsViewActivity.install(provider, may_idle)
+                    self._hls_activity = HlsViewActivity.install(provider, may_idle, lambda: stream.get_diagnostics())
                 provider.idle_timer.start()
             return provider
 
