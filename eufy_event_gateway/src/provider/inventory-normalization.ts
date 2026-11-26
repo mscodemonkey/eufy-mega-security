@@ -172,7 +172,24 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     seen.add(serial);
     const model = safeValue(value.device_model, 100) ?? "Unknown Eufy device";
     const deviceType = integer(value.device_type);
-    const parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
+    let parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
+    // Some Eufy inventories report a self-parented camera even when it is
+    // physically attached to a HomeBase. The station serial is then carried
+    // in the params array as param_type 40008. Use it only when the row
+    // currently has no non-self parent, so an explicit parent_sn/station_sn
+    // is never overridden.
+    if (!parentSerial || parentSerial === serial) {
+      if (Array.isArray(value.params)) {
+        for (const row of value.params) {
+          if (!isRecord(row)) continue;
+          const type = typeof row.param_type === "number" ? row.param_type
+            : typeof row.param_type === "string" && /^\d{1,5}$/.test(row.param_type) ? Number(row.param_type) : null;
+          if (type !== 40008) continue;
+          const station = typeof row.param_value === "string" ? row.param_value.trim() : "";
+          if (station.length > 0 && station !== serial) { parentSerial = station; break; }
+        }
+      }
+    }
     const channel = integer(value.device_channel) ?? integer(value.channel);
     const reads = safeInventoryReads(value.params, deviceType, model, (!parentSerial || parentSerial === serial) && channel === 0);
     const s340ModeEvidence = model === "T8170" && deviceType === 48 && parentSerial && parentSerial !== serial

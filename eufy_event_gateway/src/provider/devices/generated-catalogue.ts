@@ -105,7 +105,8 @@ export const GENERATED_CATALOGUE_DEVICES: readonly GeneratedCatalogueDevice[] = 
     "name": "Floodlight Cam (T8420X hardware variant)",
     "category": "camera",
     "models": [
-      "T8420"
+      "T8420",
+      "T8420X"
     ],
     "deviceType": 3,
     "status": "ready_to_test",

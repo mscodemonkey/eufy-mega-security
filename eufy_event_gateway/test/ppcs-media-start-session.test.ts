@@ -1132,6 +1132,21 @@ for (const reason of ["response_timeout", "session_closed", "protection_unavaila
 }
 
 
+test("a T8420X behind HomeBase 3 opens with the 1700 single_no_ext body", async context => {
+  const f = await peer(context, true, "T8420X", "media", "T8030", undefined, 3, 3, { stationDeviceType: 18 });
+  try {
+    await f.negotiate();
+    const start = f.sent.find(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1700);
+    assert.ok(start, "T8420X attached route must send a 1700 media start");
+    // Level-two frame type 8, child channel 3, non-zero stream id.
+    assert.deepEqual([...start!.subarray(18, 23)], [8, 0, 3, 8, 11]);
+    assert.ok(f.session.stats.mediaStartProtocols.includes("level2-1700-single-no-ext"));
+    assert.equal(f.session.stats.mediaStartAttempts, 1);
+    // No 1350 start (the default attached path) must be sent.
+    assert.ok(!f.sent.some(packet => packet.length >= 24 && packet.readUInt16LE(12) === 1350));
+  } finally { f.session.close(); }
+});
+
 for (const result of [0, -117, -118]) test(`T8442 first-start padded result ${result} survives acknowledgement without changing startup`, async context => {
   const f = await peer(context, true, "T8442", "media", "T8030", undefined, 3, 46);
   try {

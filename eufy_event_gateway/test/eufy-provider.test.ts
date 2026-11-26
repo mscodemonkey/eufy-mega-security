@@ -85,6 +85,35 @@ test("retains only the device's own reported firmware and hardware metadata", ()
   assert.equal(devices[1]?.hardwareVersion, null);
 });
 
+test("recovers a HomeBase parent from param 40008 when the cloud reports the camera self-parented", () => {
+  const station = "T8030P1324421FCF";
+  const camera = "T8420N6021170D64";
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: camera, device_model: "T8420X", device_type: 3, parent_sn: camera,
+      device_channel: 0, params: [{ param_type: 40008, param_value: station }] },
+    { device_sn: station, device_model: "T8030", device_type: 18 },
+  ] });
+  const row = devices.find(device => device.serial === camera)!;
+  assert.equal(row.parentSerial, station);
+  assert.equal(row.channel, 0);
+});
+
+test("param 40008 never overrides an explicit non-self parent", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T8420X", device_type: 3, parent_sn: "explicit-station",
+      params: [{ param_type: 40008, param_value: "other-station" }] },
+  ] });
+  assert.equal(devices[0]?.parentSerial, "explicit-station");
+});
+
+test("param 40008 is ignored when its value is the camera's own serial", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "camera", device_model: "T8420X", device_type: 3, parent_sn: "camera",
+      params: [{ param_type: 40008, param_value: "camera" }] },
+  ] });
+  assert.equal(devices[0]?.parentSerial, "camera");
+});
+
 test("keeps an established station connected through three isolated refresh failures", () => {
   assert.equal(stationConnectedAfterRefreshFailure(true, 1), true);
   assert.equal(stationConnectedAfterRefreshFailure(true, 2), true);

@@ -9,6 +9,7 @@ integration:
   handler: camera
 models:
   - T8420
+  - T8420X
 device_type: 3
 capabilities:
   controls:

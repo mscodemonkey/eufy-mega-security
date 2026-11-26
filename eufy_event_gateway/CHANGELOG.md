@@ -72,6 +72,9 @@
 - Accept the E330 experimental light trial's exact matching clear padded receipt instead of discarding it. Nonzero results still fail, and acknowledgements do not invent light state. Existing physical on/off results stand, while the corrected response still needs confirming.
 - Add fixed field-shape reasons when an E340 picture notification has no usable recording reference. Keep paths, IDs and timestamps out of logs. This improves diagnosis and does not yet repair missing pictures.
 - Reconcile support notes with confirmed HomeBase 2 receive audio and the new standalone S120 motion report.
+- Add T8420X live video using the app's `single_no_ext` recipe (sub-command 1000 body without extValue), after both the T8423 encrypted open and the keyless 1350/1003 start were rejected with P2P error -103 (ERROR_INVALID_COMMAND) on real hardware. Hardware playback is still unconfirmed.
+- Route a T8420X reported as attached to a HomeBase 3 (S380) through the app's attached live-open on the HomeBase's session with the camera's channel (1700 `single_no_ext`, level-two, bare 1004 stop) instead of the standalone P2P open. This activates only once the Eufy inventory names the HomeBase as the camera's station, so standalone behaviour is unchanged. Confirmed on real hardware: a bound T8420X behind an S380 produced 51 H.264 frames (`video_codec=h264`, NAL types 7/8/5/1, `media_start_protocols=level2-1700-single-no-ext`, clean `level2-bare-channel` stop).
+- Recover a HomeBase parent from the inventory `params` array (param_type 40008 carries the station serial) when the cloud reports a camera as self-parented but physically attached. An explicit non-self `parent_sn`/`station_sn` always wins, and a 40008 value equal to the camera's own serial is ignored. This makes the confirmed S380-attached T8420X playback work with no operator configuration.
 
 ## 0.1.273
 

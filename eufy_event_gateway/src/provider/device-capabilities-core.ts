@@ -102,7 +102,7 @@ export function cameraDetectionKinds(
     return ["motion", "person", "stranger", "pet", "vehicle", "dog", "crying", "sound"];
   }
   if (homeBaseAttached !== false) return undefined;
-  if (model === "T8420" && device.deviceType === 3) return ["motion"];
+  if ((model === "T8420" || model === "T8420X") && device.deviceType === 3) return ["motion"];
   if ((model === "T8410C" || model === "T8410C21") && device.deviceType === 31) {
     return ["motion", "person", "pet", "crying", "sound"];
   }

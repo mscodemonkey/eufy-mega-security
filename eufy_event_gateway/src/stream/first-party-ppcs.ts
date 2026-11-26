@@ -286,6 +286,16 @@ function usesT8210StationHeartbeatProfile(route: AttachedMediaControlRoute): boo
 }
 
 /** Limit the independently authenticated direct stop to its observed child route. */
+/**
+ * A T8420X behind HomeBase 3 uses the app's attached `single_no_ext` live open:
+ * a 1700 sub-command 1000 body without extValue, sent on the station's session
+ * with the camera's channel, level-two encrypted. Its stop is the app's `bare`
+ * 1004 (channel only) instead of the default 1350 payload.
+ */
+export function usesT8420XAttachedMediaProfile(route: { readonly cameraModel?: string; readonly stationModel?: string; readonly stationDeviceType?: number | null }): boolean {
+  return route.cameraModel === "T8420X" && route.stationModel === "T8030" && route.stationDeviceType === 18;
+}
+
 function usesT8210DirectMediaStop(channel: number, route: AttachedMediaControlRoute): boolean {
   return channel === 4 && usesT8210StationHeartbeatProfile(route);
 }
@@ -750,9 +760,26 @@ export class PpcsVideoFrameDecoder {
  * Other models retain the existing extension until their own contract is
  * established. Attached-camera lifecycle commands use a separate builder.
  */
+/**
+ * The T8420X hardware variant's app handler opens live with sub-command 1000
+ * and no extValue field: an exact recipe match of the eufy app's
+ * `openLiveStream1700` single open, verified against the app build's handler
+ * table. Its body carries no extValue, streamtype 0, and none of the extra
+ * msg_id/timestamp/transaction fields the generic standalone contract adds.
+ */
+export function buildT8420XLiveStartValue(channel: number, accountId: string, publicKey: string): string {
+  if (accountId.length === 0 || publicKey.length === 0) throw new Error("T8420X live start requires account and key");
+  return JSON.stringify({ commandType: 1000, data: {
+    cmd: 1000, mChannel: channel, account_id: accountId, mValueStrSub: accountId,
+    mValue3: 0, mValue5: 0, restore: 0, video_type: 12, encryptkey: publicKey,
+    entrytype: 0, accountId, camera_type: 0, ivalue: 1, streamtype: 0,
+  } });
+}
+
 export function buildStandaloneLiveStartValue(
   model: string, channel: number, accountId: string, publicKey: string, timestamp: number,
 ): string {
+  if (model === "T8420X") return buildT8420XLiveStartValue(channel, accountId, publicKey);
   return JSON.stringify({ commandType: 1000, data: {
     cmd: 1000, account_id: accountId, accountId,
     mValueStrSub: accountId, mChannel: channel, mValue3: 0, mValue5: 0,
@@ -1831,9 +1858,9 @@ export class FirstPartyPpcsSession {
     mediaStartRetransmitted: 0,
     mediaStartExpired: 0,
     mediaStartProtocols: [] as ("level1" | "level2" | "t8200-clear" | "t8420-clear"
-      | "original-1003-clear" | "original-1350-clear" | "original-1350-level1" | "original-1350-rsa")[],
+      | "original-1003-clear" | "original-1350-clear" | "original-1350-level1" | "original-1350-rsa" | "level2-1700-single-no-ext")[],
     mediaStopAttempts: 0,
-    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload" | "clear-direct" | "rsa-direct",
+    mediaStopProtocol: "none" as "none" | "level1-direct" | "level2-direct" | "level2-payload" | "clear-direct" | "rsa-direct" | "level2-bare-channel",
 
     /** Original HomeBase negotiation outcome. Neither field contains key material. */
     originalHomeBaseKey: undefined as OriginalHomeBaseKeyReason | undefined,
@@ -4618,6 +4645,18 @@ export class FirstPartyPpcsSession {
       ));
       return;
     }
+    if (usesT8420XAttachedMediaProfile(this.#options)) {
+      // The app's T8420X HomeBase stop is a bare 1004 frame whose body is the
+      // camera's channel (u32le), level-two encrypted.
+      const value = Buffer.alloc(4);
+      value.writeUInt32LE(this.#options.channel);
+      this.stats.mediaStopAttempts++;
+      this.stats.mediaStopProtocol = "level2-bare-channel";
+      this.#sendCommand(1004, rawPayload(
+        encryptLevel2(value, this.#level2Key!, this.#level2Seq++), this.#options.channel, 8, [8, 0], 0,
+      ));
+      return;
+    }
     this.#sendAttachedMediaControl(1004);
   }
 
@@ -4625,6 +4664,19 @@ export class FirstPartyPpcsSession {
   #sendAttachedMediaControl(command: 1003 | 1004): void {
     if (!this.#remote || !this.#level2Key) return;
     if (command === 1003) {
+      if (usesT8420XAttachedMediaProfile(this.#options)) {
+        // The app opens a T8420X behind a HomeBase with the standalone 1700
+        // sub-command 1000 body (no extValue) on the station's session.
+        const value = buildT8420XLiveStartValue(this.#options.channel, this.#options.accountId ?? "", publicModulus(this.#rsa.publicKey));
+        const body = encryptLevel2(Buffer.from(value), this.#level2Key, this.#level2Seq++);
+        this.stats.mediaStartAttempts++;
+        if (!this.stats.mediaStartProtocols.includes("level2-1700-single-no-ext")) this.stats.mediaStartProtocols.push("level2-1700-single-no-ext");
+        const header = commandHeader(this.#seq++, 1700);
+        const packet = Buffer.concat([header, rawPayload(body, this.#options.channel, 8, [8, 0], this.#options.channel === 0 ? 0 : 10 + (this.#level2Seq & 127))]);
+        if (!this.stats.startHex) this.stats.startHex = packet.subarray(0, 32).toString("hex");
+        this.#sendMediaStart(packet);
+        return;
+      }
       this.stats.mediaStartAttempts++;
       if (!this.stats.mediaStartProtocols.includes("level2")) this.stats.mediaStartProtocols.push("level2");
     } else {

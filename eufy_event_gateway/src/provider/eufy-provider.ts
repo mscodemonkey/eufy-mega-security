@@ -539,7 +539,7 @@ export function supportsCameraLiveAudio(
 ): boolean {
   if (!routeReady || !route || device.channel === null) return false;
   if (supportsExperimentalHb2LiveAudio(device, route, routeReady)) return true;
-  if (device.model === "T8442" && device.deviceType === 46) {
+  if ((device.model === "T8442" && device.deviceType === 46) || (device.model === "T8420X" && device.deviceType === 3)) {
     return route.homeBaseAttached && route.peer.model === "T8030" && route.peer.deviceType === 18
       && Number.isSafeInteger(device.channel) && device.channel >= 0 && device.channel <= 31
       && Boolean(device.adminUserId) && route.peer.adminUserId === device.adminUserId;
@@ -7960,6 +7960,7 @@ function jpegBoundaryResult(data: Buffer): "missing_both" | "missing_end" | "mis
   if (ends) return "missing_start";
   return "missing_both";
 }
+
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
