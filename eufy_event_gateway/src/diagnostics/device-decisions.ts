@@ -7,33 +7,6 @@ import { safeCameraModel } from "../domain/safe-camera-model.js";
 import { GENERATED_CATALOGUE_DEVICES } from "../provider/devices/generated-catalogue.js";
 import { liveBinding, referenceOperations } from "./model-reference.js";
 
-/** Only small numeric sensor descriptors may cross the diagnostic boundary. */
-export type SensorInventory = { status: "missing" | "empty" | "invalid" | "duplicate" }
-  | { status: "reported"; sensors: { id: number; type: number }[] };
-
-/** Read parameter 9240 from a single inventory response and discard raw values. */
-export function sensorInventory(params: unknown): SensorInventory {
-  const rows = Array.isArray(params) ? params.filter(p => p?.param_type === 9240 || p?.param_type === "9240") : [];
-  if (!rows.length) return { status: "missing" };
-  if (rows.length !== 1) return { status: "duplicate" };
-  let value: unknown = rows[0].param_value;
-  if (typeof value === "string") {
-    if (value === "") return { status: "empty" };
-    if (value.length > 4096) return { status: "invalid" };
-    try { value = JSON.parse(value); } catch { return { status: "invalid" }; }
-  }
-  if (!Array.isArray(value) || value.length > 32) return { status: "invalid" };
-  if (!value.length) return { status: "empty" };
-  const sensors = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return { status: "invalid" };
-    const { id = 0, type = 0 } = entry;
-    if (![id, type].every(n => Number.isInteger(n) && n >= 0 && n <= 255)) return { status: "invalid" };
-    sensors.push({ id, type });
-  }
-  return { status: "reported", sensors };
-}
-
 /** Combine exact catalogue identity, app reference and current EMS admission for one local selection. */
 export function deviceDecisions(state: GatewayState, serial: string) {
   const inventory = state.listInventoryDiagnostics().find(row => row.serial === serial);
@@ -46,9 +19,13 @@ export function deviceDecisions(state: GatewayState, serial: string) {
   const capabilities = [...state.listDeviceCapabilities(), ...state.listCameraCapabilities()].filter(row => row.serial === serial);
   const sensors = inventory?.sensorInventory ?? { status: "missing" as const };
   const reference = matches.length === 1 ? liveBinding(model) : undefined;
+  const topology = inventory?.decisionTopology ?? "unknown";
+  const startup = reference === "OpenLiveStreamParser1700_V4" && topology !== "unknown"
+    ? topology === "direct" ? "direct 1700 wrapper" : "station 1350 wrapper"
+    : reference === "OpenLiveStreamParser1350_V3 (v6)" ? "recorder-style start request" : reference && inventory?.s340StartRequest ? inventory.s340StartRequest : "unresolved";
   return {
-    model, deviceType: type, catalogue: matches.length === 1 ? matches[0]!.status : "unresolved",
-    topology: inventory?.decisionTopology ?? "unknown", parentModel: inventory?.decisionParentModel ?? null,
+    referenceBuild: "6.1.20_31181", model, deviceType: type, catalogue: matches.length === 1 ? matches[0]!.status : "unresolved",
+    topology, predictedStartRequest: startup, parentModel: inventory?.decisionParentModel ?? null,
     firmware: inventory?.decisionFirmware ?? null,
     referenceOperations: matches.length === 1 ? referenceOperations(model) : [],
     liveHandler: reference ?? "unresolved", sensorInventory: sensors,

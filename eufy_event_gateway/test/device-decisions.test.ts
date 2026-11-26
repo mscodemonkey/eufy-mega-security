@@ -5,7 +5,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GatewayState } from "../src/domain/gateway-state.js";
-import { deviceDecisions, sensorInventory } from "../src/diagnostics/device-decisions.js";
+import { deviceDecisions } from "../src/diagnostics/device-decisions.js";
+import { sensorInventory } from "../src/provider/sensor-inventory.js";
 import { GENERATED_CATALOGUE_DEVICES } from "../src/provider/devices/generated-catalogue.js";
 
 test("9240 preserves missing and malformed evidence and retains only numeric sensor descriptors", () => {
@@ -32,4 +33,17 @@ test("every typed catalogue entry gets a local privacy-safe report, even with no
     if (model === "T8170" && row.deviceType === 48) assert.equal(report.liveHandler, "OpenLiveStreamParser1350_V3 (v2)");
   }
   assert.equal(deviceDecisions(state, "other"), null);
+});
+
+test("S340 reference distinguishes HB3 variants and outdoor selection without retaining identifiers", async () => {
+  const { parseMegaInventory } = await import("../src/provider/inventory-normalization.js");
+  const camera = { device_sn: "T8170-PRIVATE", device_model: "T8170", device_type: 48, params: [] };
+  for (const [parent, params, expected] of [
+    ["T8030000PRIVATE", [], "station 1350 wrapper"], ["T8030001PRIVATE", [], "recorder-style start request"],
+    ["T8030000PRIVATE", [{ param_type: 6271, param_value: 1 }], "direct 1700 wrapper"],
+    ["T8170-PRIVATE", [], "direct 1700 wrapper"], ["unidentified", [], undefined],
+  ] as const) {
+    const [parsed] = parseMegaInventory({ devices: [{ ...camera, parent_sn: parent, params }] });
+    assert.equal(parsed?.s340StartRequest, expected);
+  }
 });

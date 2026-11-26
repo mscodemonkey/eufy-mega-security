@@ -249,7 +249,7 @@ action('load', async () => {
   clearTrialAdmission();
   await status();
 });
-let decisionGeneration = 0, decisionReport = null, viewJob = null, decisionPreviewUrl = null;
+let decisionTarget = null, decisionGeneration = 0, decisionReport = null, viewJob = null, decisionPreviewUrl = null;
 function clearDecisionPreview() {
   const preview = el('decision-preview');
   preview.hidden = true;
@@ -264,6 +264,7 @@ function resetDecisions() {
   ++decisionGeneration;
   if(viewJob) viewJob.abort();
   decisionReport = null;
+  decisionTarget = null;
   el('decision-view').replaceChildren();
   for(const id of ['decision-view','test-view','export-decision']) el(id).disabled = true;
   el('decision-status').textContent = 'Select a device to begin.';
@@ -277,7 +278,7 @@ function displayDecisions() {
   const operations = r.operations.map(op => op.id + ' (' + op.family + '): ' + (op.offerable ? 'available' : op.deviceEvidence));
   const lines = [
     r.model + ' · ' + r.catalogue, 'Connection: ' + r.topology + (r.parentModel ? ' via ' + r.parentModel : ''),
-    'Android live handler: ' + r.liveHandler, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
+    'Android live handler: ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
     'Reported view mode: ' + r.viewMode, 'Platform V2 startup layout: ' + r.platformPlayerLayout,
     'EMS views: ' + (r.views.join(', ') || 'none admitted'),
     ...operations, ...Object.entries(r.tests).map(([view, result]) => view + ': ' + result)
@@ -290,6 +291,7 @@ action('inspect-device', async () => {
   if(!target) throw Error('Select one device first.');
   const report = await (await api('bundle/device-decisions', 'POST', { target })).json();
   if(generation !== decisionGeneration) return;
+  decisionTarget = target;
   decisionReport = { ...report, tests: {} };
   for(const view of report.views) el('decision-view').add(new Option(view, view));
   el('decision-view').disabled = el('test-view').disabled = !report.views.length;
@@ -298,7 +300,7 @@ action('inspect-device', async () => {
 });
 action('test-view', async () => {
   const generation = decisionGeneration, target = el('device').value, view = el('decision-view').value;
-  if(!decisionReport?.views.includes(view)) return;
+  if(decisionTarget !== target || !decisionReport?.views.includes(view)) return;
   const controller = new AbortController();
   viewJob = controller;
   el('test-view').disabled = true;
@@ -343,7 +345,7 @@ action('test-view', async () => {
   }
 });
 action('export-decision', () => {
-  if(!decisionReport) return;
+  if(!decisionReport || decisionTarget !== el('device').value) return;
   const url = URL.createObjectURL(new Blob([JSON.stringify(decisionReport, null, 2)], {type:'application/json'}));
   const link = document.createElement('a');
   link.href = url; link.download = 'ems-device-decisions.json'; link.click();

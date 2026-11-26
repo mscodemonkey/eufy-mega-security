@@ -5,7 +5,7 @@
  * publication and cleanup. Timestamp validation still uses the current clock.
  */
 
-import { sensorInventory, type SensorInventory } from "../diagnostics/device-decisions.js";
+import { sensorInventory, type SensorInventory } from "./sensor-inventory.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { readCameraSetting } from "./camera-settings.js";
 import { e21Readings, type E21Readings } from "./e21-profile.js";
@@ -56,8 +56,13 @@ export interface MegaInventoryDevice {
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
 
-  /** Content-free reason for withholding the mode, separate from reported device state. */
+  /** Latest bounded sensor-list projection for optional device diagnostics. */
   readonly sensorInventory?: SensorInventory;
+
+  /** S340 handler branch derived before the private parent identity is discarded. */
+  readonly s340StartRequest?: string;
+
+  /** Content-free reason for withholding the mode, separate from reported device state. */
   readonly s340LiveModeEvidence?: S340LiveModeEvidence;
 }
 
@@ -181,6 +186,8 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       ? readS340LiveModeEvidence(Array.isArray(value.params) ? value.params.flatMap(row => (
         isRecord(row) && integer(row.param_type) === 6243 ? [{ param_type: 6243, param_value: row.param_value }] : []
       )) : []) : undefined;
+    const s340StartRequest = model === "T8170" && deviceType === 48
+      ? s340ReferenceStart(value.parent_sn, value.params) : undefined;
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -219,6 +226,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
       sensorInventory: sensorInventory(value.params),
+      ...(s340StartRequest ? { s340StartRequest } : {}),
       ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
@@ -256,6 +264,17 @@ export function inventoryBindingChanged(existing: MegaInventoryDevice, fresh: Me
   return existing.parentSerial !== fresh.parentSerial || existing.channel !== fresh.channel
     || existing.model !== fresh.model || existing.deviceType !== fresh.deviceType
     || existing.category !== fresh.category || existing.adminUserId !== fresh.adminUserId;
+}
+
+/** Reconstruct the retained T8170 v2 branch for its direct, HB3 and HB3E routes. */
+function s340ReferenceStart(parent: unknown, params: unknown): string | undefined {
+  if (typeof parent !== "string" || !parent || !Array.isArray(params)) return undefined;
+  const outdoor = params.filter(p => p?.param_type === 6271);
+  if (outdoor.length > 1) return undefined;
+  const value: unknown = outdoor[0]?.param_value;
+  if (parent.startsWith("T8170") || [true, 1, "1", "true"].some(on => on === value)) return "direct 1700 wrapper";
+  if (parent.startsWith("T8030")) return parent[7] === "1" ? "recorder-style start request" : "station 1350 wrapper";
+  return undefined;
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {

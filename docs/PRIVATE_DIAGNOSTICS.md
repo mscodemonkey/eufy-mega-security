@@ -7,6 +7,21 @@ automatically, and capturing diagnostics doesn't change your camera settings.
 You'll need app and integration v0.1.131 or newer. Follow the short request in
 your GitHub issue for which device to choose and what to try.
 
+
+## Inspect one device and test live views
+
+Open **Diagnostics**, load devices, choose one and expand **Device decisions and view tests**.
+**Inspect selected device** reads the gateway’s cached inventory. The report lists the
+exact catalogue match, Android reference bindings, sensor descriptors when reported,
+and the gateway’s current capability decisions. An unresolved entry means the gateway
+has insufficient evidence for that decision. A model binding alone cannot confirm a
+particular camera’s firmware, account access or delivered video.
+
+For a camera, select an available view and choose **Test selected view**. The default
+test requests a three-second clip. Play it locally to check the picture. Other listed
+lens routes check for incoming data only. **Download device report** exports the
+selected device’s diagnostic facts and test results. The preview stays out of the file.
+
 ## Your privacy
 
 The bundle's technical data excludes Eufy account details, email addresses,
