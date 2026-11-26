@@ -12,6 +12,7 @@
  */
 import { PpcsReceiveTimeline, type PpcsReceiveObservation } from "./ppcs-receive-timeline.js";
 import { PpcsQueryTrace, type PpcsControlDecodeOutcome } from "./ppcs-query-trace.js";
+import { PanTiltAcknowledgementTimeout, type PanTiltController, type PpcsControlTransport, type PanTiltDirection } from "./pan-tilt-controller.js";
 import { mergeReplyProtection, PpcsControlReceiptTrace, type PpcsControlReceiptEvidence, type PpcsReplyProtection } from "./ppcs-reply-evidence.js";
 import { s340LiveQualityValue } from "../provider/s340-live-quality.js";
 import { T8171SessionQuality } from "../provider/t8171-session-quality.js";
@@ -1902,6 +1903,8 @@ export class FirstPartyPpcsSession {
   #lookupTimer: ReturnType<typeof setInterval> | null = null;
   #selfAddress: { host: string; port: number } | null = null;
   #pendingControl: PendingControl | null = null;
+  #panTiltController: PanTiltController | null = null;
+  readonly #unconfirmedPanTiltChannels = new Set<number>();
 
   /** A second write could confuse a delayed notification from the first command. */
   #twoCLightWriteAttempted = false;
@@ -2559,6 +2562,72 @@ export class FirstPartyPpcsSession {
     try { onDispatch(); this.#sendCommand(frame.command, frame.payload); }
     catch (error) { void acknowledgement.catch(() => undefined); throw error; }
     await acknowledgement;
+  }
+
+  /** Only a current decoded HB3 viewer can lend its negotiated transport to a child control. */
+  hasHomeBaseViewerBinding(binding: Pick<PpcsCameraOptions, "stationSerial" | "p2pDid" | "appConnection" | "channel" | "accountId">): boolean {
+    return this.#homeBaseViewerReady() && this.#matchesViewerBinding(binding);
+  }
+
+  #homeBaseViewerReady(): boolean {
+    if (this.#closed || !this.#remote || this.#options.homeBaseAttached !== true || (this.#options.purpose ?? "media") !== "media") return false;
+    if (this.#options.stationModel !== "T8030" || this.#options.stationDeviceType !== 18) return false;
+    return this.#level2Key !== null && this.stats.videoOutputFrames > 0;
+  }
+
+  #matchesViewerBinding(binding: Pick<PpcsCameraOptions, "stationSerial" | "p2pDid" | "appConnection" | "channel" | "accountId">): boolean {
+    return this.#options.stationSerial === binding.stationSerial && this.#options.p2pDid === binding.p2pDid
+      && this.#options.appConnection === binding.appConnection && this.#options.channel === binding.channel
+      && this.#options.accountId === binding.accountId;
+  }
+
+  /** A ready viewer can address siblings; an isolated control session can address only its own channel. */
+  #canRoutePanTiltTo(targetChannel: number): boolean {
+    if (!Number.isInteger(targetChannel) || targetChannel < 0 || targetChannel > 254) return false;
+    if (this.#homeBaseViewerReady()) return true;
+    if (this.#options.purpose !== "control" || targetChannel !== this.#options.channel) return false;
+    return true;
+  }
+
+  #hasConflictingPanTiltOperation(): boolean {
+    return !!(this.#panTiltController || this.#pendingControl || this.#pendingControlQuery || this.#pending2cLightState || this.#alarmRead);
+  }
+
+  /** Own one registered controller without replacing a borrowed viewer or its media channel. */
+  async movePanTilt(direction: PanTiltDirection, current: () => void,
+    createController: (transport: PpcsControlTransport) => PanTiltController, targetChannel = this.#options.channel): Promise<void> {
+    if (this.#closed || !this.#remote || !this.#canRoutePanTiltTo(targetChannel)
+      || this.#hasConflictingPanTiltOperation() || this.#unconfirmedPanTiltChannels.has(targetChannel)) {
+      throw new Error("Pan control unavailable");
+    }
+    let dispatched = false;
+    const controller = createController({
+      isConnected: () => !this.#closed && this.#remote !== null,
+      decodeResult: (header, payload, command, channel) => {
+        if (header.length !== 16 || channel !== targetChannel) return null;
+        return decodeModelControlTrialAcknowledgement(header, payload, command, channel,
+          commandKey(this.#options.stationSerial, this.#options.p2pDid), this.#level2Key);
+      },
+      sendJson: async (command, value, channel, check) => {
+        await this.#waitForLevel2Key();
+        check();
+        if (this.#closed || this.#panTiltController !== controller || channel !== targetChannel) throw new Error("Pan control session retired");
+        const sequence = this.#level2Seq++;
+        const payload = this.#options.homeBaseAttached
+          ? rawPayload(encryptLevel2(Buffer.from(value), this.#level2Key!, sequence), channel, 8, [8, 0], 0)
+          : buildStandaloneJsonControlPayload(value, channel, commandKey(this.#options.stationSerial, this.#options.p2pDid));
+        this.#sendCommand(command, payload);
+        dispatched = true;
+      },
+    });
+    this.#panTiltController = controller;
+    try { await controller.movePanTilt(direction, current); }
+    catch (error) {
+      // The receipt has no movement ID. A late result must not complete a later move on this connection.
+      if (dispatched && error instanceof PanTiltAcknowledgementTimeout) this.#unconfirmedPanTiltChannels.add(targetChannel);
+      throw error;
+    }
+    finally { controller.close(); if (this.#panTiltController === controller) this.#panTiltController = null; }
   }
 
   /** Return the last observed manual-light receipt window, including after session retirement. */
@@ -3384,6 +3453,7 @@ export class FirstPartyPpcsSession {
     this.#continuous?.close();
     this.#c31IndexBody = undefined;
     this.#closed = true;
+    this.#panTiltController?.close();
     this.#level2Failure = null;
     this.#lookupCancel?.();
     this.#lookupCancel = null;
@@ -3712,6 +3782,7 @@ export class FirstPartyPpcsSession {
       this.stats.frameShapes.push(shape);
     }
 
+    if (this.#panTiltController?.handleFrame(header, payload, type)) return;
     if (this.#originalHomeBase && this.#handleOriginalHomeBaseFrame(header, payload, type)) return;
 
     // The original standalone T8420 asks for this account-bound response during

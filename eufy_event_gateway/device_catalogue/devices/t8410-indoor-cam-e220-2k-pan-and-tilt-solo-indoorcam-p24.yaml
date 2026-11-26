@@ -13,6 +13,15 @@ models:
 device_type: 31
 capabilities:
   controls:
+    pan_tilt:
+      connections:
+        T8030:
+          status: tested
+          tested_on: 2026-11-23
+          tested_by: davinche
+          notes: Exact T8410/type 31 on HomeBase 3 T8030/type 18, awake during testing. Shared-account one-step movement was confirmed with no gateway viewer, its own viewer, and a sibling viewer. Opposite steps restored the view without restarting playback. Requires experimental model controls and API authentication. T8413 and standalone routes are not admitted.
+      write:
+        command: 6030
     enabled:
       connections:
         direct:

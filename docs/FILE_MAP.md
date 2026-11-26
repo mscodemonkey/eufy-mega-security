@@ -37,6 +37,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | `eufy_event_gateway/src/storage/snapshot-store.ts` | Persists one verified last-good image per camera with hashed filenames, serialized writes, and atomic replacement. |
 | `eufy_event_gateway/src/provider/provider.ts` | Narrow adapter interface separating a real or simulated provider from state and HTTP code. |
 | `eufy_event_gateway/src/provider/eufy-provider.ts` | Translates Mega inventory/push/media observations into provider callbacks and selects first-party PPCS for live video. |
+| `eufy_event_gateway/src/provider/pan-tilt-registry.ts` | Selects directional controllers by qualified device identity and account requirement. |
 | `eufy_event_gateway/src/provider/camera-capability-core.ts` | Small live lookup of existing camera media, events, and battery reads. |
 | `eufy_event_gateway/src/provider/{sensor,homebase,doorbell}-capability-core.ts` | Small core family lookups. |
 | `eufy_event_gateway/src/provider/device-capability-core.ts` | Shared row shape used by each family definition file. |
@@ -61,6 +62,7 @@ If you are new to the project, read [`DEVELOPERS_START_HERE.md`](DEVELOPERS_STAR
 | Path | Purpose |
 | --- | --- |
 | `src/stream/first-party-ppcs.ts` | Production Eufy PPCS UDP lookup, CAM_CHECK, HomeBase key unwrap, media request, H.264 extraction, and heartbeat. PPCS means Eufy's peer-to-peer camera transport. |
+| `src/stream/pan-tilt-controller.ts` | Directional-control contract and shared acknowledgement, timeout and closure lifecycle. |
 | `src/stream/original-homebase-live.ts` | Selects and builds the older RSA or derived-key live start and stop for T8111 through T8001. Live video is reported working on T8001 only. |
 | `src/stream/homebase-event-names.ts` | Reads one owner-bound doorbell history page, exposes aggregate diagnostics and privately selects a single name for an exact notification record/path. |
 | `src/stream/homebase-recordings.ts` | Reads owned SoloCam E30 history through HomeBase 3 and verifies bounded saved transfers with per-download recipient keys. |
