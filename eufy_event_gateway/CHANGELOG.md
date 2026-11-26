@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.282
+
+- Add a device decision report to EMS web Diagnostics for all 206 exact model codes in the retained Eufy Android reference library.
+- Test available camera views locally and download a JSON report with the result. The report excludes the preview video, device names and serial numbers.
+
 ## 0.1.281
 
 - Fix live video startup with receive audio when buffered video prevents Home Assistant from detecting the incoming AAC format. Preserve video order and media timing for H.264 and H.265. Confirmation on the affected cameras is still pending.
