@@ -5,7 +5,7 @@
  * publication and cleanup. Timestamp validation still uses the current clock.
  */
 
-import { androidModelReference, predictLiveRequest } from "../diagnostics/model-reference.js";
+import { androidModelReference, predictLiveRequest, referenceFirmware } from "../diagnostics/model-reference.js";
 import { sensorInventory, type SensorInventory } from "./sensor-inventory.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { readCameraSetting } from "./camera-settings.js";
@@ -62,6 +62,9 @@ export interface MegaInventoryDevice {
 
   /** Android live-start prediction derived before the private parent identity is discarded. */
   readonly referenceStartRequest?: string;
+
+  /** Verified parent station version from a unique row in the same inventory response. */
+  readonly referenceParentFirmware?: string;
 
   /** Content-free reason for withholding the mode, separate from reported device state. */
   readonly s340LiveModeEvidence?: S340LiveModeEvidence;
@@ -170,6 +173,15 @@ export interface MegaInventoryReads {
  */
 export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
   if (!isRecord(response) || !Array.isArray(response.devices)) return [];
+  const stationFirmware = new Map<string, string | undefined>();
+  for (const row of response.devices) {
+    if (!isRecord(row)) continue;
+    const serial = safeValue(row.device_sn, 128);
+    if (!serial || !serial.startsWith("T8030")) continue;
+    const firmware = row.device_model === "T8030" ? referenceFirmware(row.main_sw_version) : undefined;
+    stationFirmware.set(serial, stationFirmware.has(serial) ? undefined : firmware);
+  }
+
   const devices: MegaInventoryDevice[] = [];
   const seen = new Set<string>();
   for (const value of response.devices) {
@@ -188,7 +200,9 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
         isRecord(row) && integer(row.param_type) === 6243 ? [{ param_type: 6243, param_value: row.param_value }] : []
       )) : []) : undefined;
     const sensors = sensorInventory(value.params);
-    const referenceStartRequest = referenceStart(model, serial, value.parent_sn, value.params);
+    const referenceParentFirmware = typeof value.parent_sn === "string" && value.parent_sn !== serial
+      ? stationFirmware.get(value.parent_sn) : undefined;
+    const referenceStartRequest = referenceStart(model, serial, value.parent_sn, value.params, referenceParentFirmware);
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -228,6 +242,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
       ...(sensors.status !== "missing" ? { sensorInventory: sensors } : {}),
       ...(referenceStartRequest ? { referenceStartRequest } : {}),
+      ...(referenceParentFirmware ? { referenceParentFirmware } : {}),
       ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
@@ -268,7 +283,7 @@ export function inventoryBindingChanged(existing: MegaInventoryDevice, fresh: Me
 }
 
 /** Evaluate only known parent and outdoor inputs before dropping the raw device response. */
-function referenceStart(model: string, serial: string, parent: unknown, params: unknown): string | undefined {
+function referenceStart(model: string, serial: string, parent: unknown, params: unknown, parentFirmware: string | undefined): string | undefined {
   if (typeof parent !== "string") return undefined;
   const rows = Array.isArray(params) ? params.filter(p => p?.param_type === 6271) : undefined;
   const outdoor = rows && rows.length <= 1
@@ -276,7 +291,7 @@ function referenceStart(model: string, serial: string, parent: unknown, params: 
   if (model === "T8170" && parent.startsWith("T8030") && parent[7] === "1" && outdoor === false) {
     return "recorder-style start request";
   }
-  return predictLiveRequest(androidModelReference(model)?.liveHandler ?? undefined, parent, serial, outdoor);
+  return predictLiveRequest(androidModelReference(model)?.liveHandler ?? undefined, parent, serial, outdoor, parentFirmware);
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {

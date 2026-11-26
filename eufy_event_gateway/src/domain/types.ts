@@ -823,6 +823,9 @@ export interface InventoryDiagnostic {
   readonly sensorInventory?: import("../provider/sensor-inventory.js").SensorInventory;
   readonly decisionTopology?: "direct" | "attached" | "unknown";
   readonly decisionParentModel?: string;
+
+  /** Parent-station firmware tied to the exact inventory binding for this device. */
+  readonly decisionParentFirmware?: string;
   readonly decisionFirmware?: string;
   readonly decisionViewMode?: string;
   readonly referenceStartRequest?: string;
