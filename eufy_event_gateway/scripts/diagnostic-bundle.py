@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -503,10 +504,69 @@ def e10_video_test(url: str, token: str, target: dict, config: Path, output: Pat
             "next": "Check the private clip for ten seconds of the selected camera. Keep it private and restore the experimental option."}
 
 
+@contextmanager
+def _new_private_file(path: Path):
+    """Reserve one output and remove the owned partial file if the action fails."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    identity = os.fstat(descriptor)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            yield stream
+    except BaseException:
+        try:
+            current = path.lstat()
+            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def device_view_report(url: str, token: str, target: dict, config: Path, output: Path,
+                       clip_output: Path | None) -> dict:
+    """Export the gateway's privacy-filtered device report and optionally test one view.
+
+    A consented preview is saved separately. Known capture failures are written
+    to the report, with no response body or media in the JSON.
+    """
+    destination = private_output_path(config, output)
+    preview = private_output_path(config, clip_output) if clip_output else None
+    if preview == destination:
+        raise DiagnosticError("Choose separate paths for the report and private clip.")
+    with _new_private_file(destination) as report_file:
+        report = json.loads(request(url + "/api/diagnostics/bundle/device-decisions", token, "POST",
+                                    {"target": target["serial"]}))
+        if (not isinstance(report, dict) or report.get("model") != target.get("model")
+                or not isinstance(report.get("views"), list)):
+            raise DiagnosticError("Gateway returned an invalid device report. List devices again.")
+        outcome = "not requested"
+        if preview and "default" not in report["views"]:
+            outcome = "default view unavailable"
+        elif preview:
+            try:
+                with _new_private_file(preview) as clip_file:
+                    clip = request(url + "/api/cameras/" + quote(target["serial"], safe="") + "/record.mp4",
+                                   token, "POST", {"duration": 3}, timeout=35, transfer_seconds=35)
+                    if not 12 <= len(clip) <= MAX_MEDIA or clip[4:8] != b"ftyp":
+                        raise DiagnosticError("Unsupported preview response.")
+                    clip_file.write(clip)
+            except DiagnosticRequestError as error:
+                outcome = f"HTTP {error.status}" if error.status else "gateway connection failed"
+            except DiagnosticError:
+                outcome = "preview did not complete"
+            else:
+                outcome = "preview saved privately"
+        report["tests"] = {"default": outcome} if preview else {}
+        report_file.write(json.dumps(report, indent=2).encode() + b"\n")
+    return {"reportSaved": True, "defaultView": outcome}
+
+
 def run(options) -> dict:
     """Perform the selected owner-requested workflow, retaining tokens only in memory."""
     if options.command == "inspect":
         return inspect_archive(read_archive(options.input))
+    if options.command == "device-view" and options.clip and not options.consent_private_media:
+        raise DiagnosticError("Saving a preview requires explicit private-media consent.")
     if options.command == "e10-video-test" and not options.consent_private_media:
         raise DiagnosticError("The E10 video test requires explicit private-media consent.")
     if options.command == "state-check" and not options.consent_read:
@@ -523,6 +583,9 @@ def run(options) -> dict:
         rows = devices(endpoint, token)
         return {"devices": [{"index": i + 1, "model": row["model"], "streamSupported": row["streamSupported"]}
                             for i, row in enumerate(rows)]}
+    if options.command == "device-view":
+        target = selected_device(devices(endpoint, token), options.target_index)
+        return device_view_report(url, token, target, options.config, options.output, options.clip)
     if options.command == "e10-go2rtc-source":
         return save_e10_go2rtc_source(url, token, selected_device(devices(endpoint, token), options.target_index), options.config, options.output)
     if options.command == "s220-settings-check":
@@ -586,6 +649,11 @@ def main(arguments=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("list", "status", "clear"):
         sub.add_parser(name)
+    decisions = sub.add_parser("device-view", help="Save a device report and optionally test one default view.")
+    decisions.add_argument("--target-index", type=int, required=True)
+    decisions.add_argument("--output", type=Path, required=True)
+    decisions.add_argument("--clip", type=Path, help="Save the optional preview to a separate private MP4 file.")
+    decisions.add_argument("--consent-private-media", action="store_true")
     source = sub.add_parser("e10-go2rtc-source", help="Save a private go2rtc source without opening the E10.")
     source.add_argument("--target-index", type=int, required=True)
     source.add_argument("--output", type=Path, required=True)

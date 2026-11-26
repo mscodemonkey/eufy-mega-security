@@ -123,6 +123,21 @@ curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 
+### Inspect one device from the terminal
+
+The `device-view` command uses the saved connection and accepts the current
+index printed by `list`. App v0.1.282 or newer supplies the device report.
+
+```sh
+python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py device-view --target-index 1 --output /config/eufy-device-report.json
+```
+
+To try the default view once, add
+`--clip /config/eufy-preview.mp4 --consent-private-media` to that command. Use
+new filenames on later invocations. Open the saved MP4 privately and send only
+the JSON report and whether the clip played. The report records a failed
+preview even when there is no MP4 to open.
+
 For a normal capture, run:
 
 ```sh
