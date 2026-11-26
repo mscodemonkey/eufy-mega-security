@@ -3,6 +3,8 @@
  * untrusted inventory. Fixtures own the state and never open camera sessions.
  */
 import test from "node:test";
+import { createHash } from "node:crypto";
+import androidModels from "../src/diagnostics/android-models.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { GatewayState } from "../src/domain/gateway-state.js";
 import { deviceDecisions } from "../src/diagnostics/device-decisions.js";
@@ -61,5 +63,54 @@ test("direct and HomeBase rules stay specific to each recovered handler", async 
     ["unreviewed", "T8010fixture", undefined],
   ] as const) {
     assert.equal(predictLiveRequest(handler, parent, "T8111fixture", false), expected);
+  }
+});
+
+test("all 206 retained Android models resolve independently of numeric type and EMS admission", () => {
+  const models = androidModels.map(row => row.model).sort();
+  assert.equal(models.length, 206);
+  assert.equal(new Set(models).size, 206);
+
+  // Pin the exact model list qualified against the November 19 manifest.
+  assert.equal(createHash("sha256").update(models.join("\n")).digest("hex"),
+    "a5e51ef2e7f86354921bb396c0556353dcc307bf69d3bd8c64e1e96db239fa95");
+  const state = new GatewayState();
+  const reportFor = (model: string) => {
+    state.updateInventoryDiagnostics([{ serial: "private-serial", name: "private-name", model, sources: ["mega"],
+      upstreamIsCamera: false, acceptedAsCamera: false, megaDeviceType: null,
+      category: null, cameraSwitch1035: "missing" }]);
+    const report = deviceDecisions(state, "private-serial");
+    assert.ok(report);
+    return report;
+  };
+  for (const row of androidModels) {
+    const report = reportFor(row.model);
+    assert.equal(report.androidReference?.model, row.model);
+    assert.equal(report.catalogue, "unresolved");
+    assert.equal(report.streamAvailable, false);
+    assert.deepEqual(report.operations, []);
+    assert.ok(!JSON.stringify(report).includes("private-serial"));
+  }
+  const variant = reportFor("T8170E");
+  assert.equal(variant.liveHandler, "OpenLiveStreamParser1350_V3 (v2)");
+  assert.ok(variant.androidReference?.actions.includes("open_live_stream"));
+  assert.ok(variant.androidReference?.resolvedOperations.includes("open_live_stream"));
+  assert.ok(variant.referenceOperations.includes("Talkback"));
+  const appliance = reportFor("T2070");
+  assert.ok(appliance.androidReference?.actions.length);
+  assert.equal(appliance.liveHandler, "unresolved");
+  assert.equal(reportFor("T8114").androidReference?.bindingRoot, false);
+  assert.equal(reportFor("T8170-FAKE").androidReference, null);
+});
+
+test("reference-only variants predict the traced request with no catalogue type", async () => {
+  const { parseMegaInventory } = await import("../src/provider/inventory-normalization.js");
+  for (const [model, expected] of [
+    ["T8170E", "direct 1700 wrapper"], ["T8124R", "direct 1700 wrapper"], ["T8217", "recorder-style start request"],
+    ["T8160C", "basic live start"], ["T8200X", "1700 wrapper"], ["T2070", undefined],
+  ] as const) {
+    const serial = model + "fixture";
+    const [device] = parseMegaInventory({ devices: [{ device_sn: serial, device_model: model, parent_sn: serial, params: [] }] });
+    assert.equal(device?.referenceStartRequest, expected, model);
   }
 });

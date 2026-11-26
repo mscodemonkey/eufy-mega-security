@@ -5,7 +5,7 @@
  * publication and cleanup. Timestamp validation still uses the current clock.
  */
 
-import { liveBinding, predictLiveRequest } from "../diagnostics/model-reference.js";
+import { androidModelReference, predictLiveRequest } from "../diagnostics/model-reference.js";
 import { sensorInventory, type SensorInventory } from "./sensor-inventory.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { readCameraSetting } from "./camera-settings.js";
@@ -276,7 +276,7 @@ function referenceStart(model: string, serial: string, parent: unknown, params: 
   if (model === "T8170" && parent.startsWith("T8030") && parent[7] === "1" && outdoor === false) {
     return "recorder-style start request";
   }
-  return predictLiveRequest(liveBinding(model), parent, serial, outdoor);
+  return predictLiveRequest(androidModelReference(model)?.liveHandler ?? undefined, parent, serial, outdoor);
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {
