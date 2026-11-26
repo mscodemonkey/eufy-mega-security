@@ -44,6 +44,55 @@ def encoded(value: dict) -> bytes:
 class DiagnosticBundleTests(unittest.TestCase):
     """Exercise local transfers and private-file boundaries with isolated fixtures."""
 
+    def test_device_view_uses_the_saved_connection_and_keeps_the_preview_separate(self):
+        """Only the selected device is tested, with media in an exclusive private file."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".storage").mkdir()
+            config = root / ".storage/core.config_entries"
+            report = root / "report.json"
+            clip = root / "preview.mp4"
+            gateway = "http://gateway.invalid"
+            response = {"model": "T8170", "views": ["default"]}
+            args = ["--config", str(config), "device-view", "--target-index", "1",
+                    "--output", str(report), "--clip", str(clip)]
+            with patch.object(TOOL.HELPERS, "gateway_connection", return_value=(gateway, "test-token")):
+                with patch.object(TOOL, "request") as request, redirect_stderr(io.StringIO()):
+                    self.assertEqual(TOOL.main(args), 1)
+                    request.assert_not_called()
+                with patch.object(TOOL, "request", side_effect=[
+                    json.dumps({"devices": [{"model": "T8170", "serial": "fixture/camera"}]}).encode(),
+                    json.dumps(response).encode(), b"\x00\x00\x00\x0cftypisom",
+                ]) as request, redirect_stdout(io.StringIO()):
+                    self.assertEqual(TOOL.main(args + ["--consent-private-media"]), 0)
+                    self.assertEqual(request.call_args_list[1].args[3], {"target": "fixture/camera"})
+                    self.assertEqual(request.call_args_list[2].args, (
+                        gateway + "/api/cameras/fixture%2Fcamera/record.mp4", "test-token", "POST", {"duration": 3}
+                    ))
+            self.assertEqual(json.loads(report.read_text())["tests"], {"default": "preview saved privately"})
+            self.assertNotIn("fixture/camera", report.read_text())
+            self.assertNotIn("test-token", report.read_text())
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(clip.stat().st_mode & 0o777, 0o600)
+
+    def test_device_view_records_a_refused_preview_without_creating_a_clip(self):
+        """An authenticated gateway failure still leaves a report for support."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".storage").mkdir()
+            clip = root / "preview.mp4"
+            report = root / "report.json"
+            target = {"model": "T8170", "serial": "fixture"}
+            with patch.object(TOOL, "request", side_effect=[
+                b'{"model":"T8170","views":["default"]}', TOOL.DiagnosticRequestError(409),
+            ]) as request:
+                result = TOOL.device_view_report("http://gateway.invalid", "test-token", target,
+                                                 root / ".storage/core.config_entries", report, clip)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(result["defaultView"], "HTTP 409")
+            self.assertEqual(json.loads(report.read_text())["tests"]["default"], "HTTP 409")
+            self.assertFalse(clip.exists())
+
     def test_e10_go2rtc_source_saves_only_the_admitted_private_connection(self):
         """Generate a private producer connection without creating a media session."""
         with tempfile.TemporaryDirectory() as folder:
