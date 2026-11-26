@@ -25,6 +25,7 @@ export function deviceDecisions(state: GatewayState, serial: string) {
     referenceBuild: "6.1.20_31181", model, deviceType: type, catalogue: matches.length === 1 ? matches[0]!.status : "unresolved",
     topology, predictedStartRequest: liveHandler ? inventory?.referenceStartRequest ?? "unresolved" : "unresolved", parentModel: inventory?.decisionParentModel ?? null,
     firmware: inventory?.decisionFirmware ?? null,
+    parentFirmware: inventory?.decisionParentFirmware ?? null,
     referenceSnapshot: "2026-11-19", androidReference: reference ?? null,
     referenceOperations: referenceOperations(reference?.resolvedOperations ?? []),
     liveHandler: liveHandler ?? "unresolved", sensorInventory: sensors,

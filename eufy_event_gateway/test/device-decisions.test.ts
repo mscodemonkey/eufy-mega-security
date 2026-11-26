@@ -144,3 +144,33 @@ test("every model declaring live start has a traced source binding", async () =>
     assert.equal(androidModelReference(model)?.liveHandler, handler, model);
   }
 });
+
+test("E330 HomeBase 3 prediction uses only firmware from its exact parent row", async () => {
+  const { parseMegaInventory } = await import("../src/provider/inventory-normalization.js");
+  const { inventoryDiagnostics } = await import("../src/provider/eufy-provider.js");
+  const camera = {
+    device_sn: "T8600000fixture", device_model: "T8600", device_type: 24,
+    parent_sn: "T8030000fixture", main_sw_version: "9.9.9.9", params: [],
+  };
+  const station = { device_sn: camera.parent_sn, device_model: "T8030", device_type: 18 };
+  const other = { ...station, device_sn: "T8030000other", main_sw_version: "9.9.9.9" };
+  const state = new GatewayState();
+
+  for (const [rows, firmware, request] of [
+    [[{ ...station, main_sw_version: "4.2.0.1" }], "4.2.0.1", "recorder-style start request"],
+    [[{ ...station, main_sw_version: "4.2.0.0" }], "4.2.0.0", "1700 wrapper"],
+    [[{ ...station, main_sw_version: "4.1.9.9" }], "4.1.9.9", "1700 wrapper"],
+    [[{ ...station, main_sw_version: "4.2" }], "4.2", "1700 wrapper"],
+    [[{ ...station, main_sw_version: "4.2.0.0.1" }], "4.2.0.0.1", "recorder-style start request"],
+    [[{ ...station, main_sw_version: "4.2.0.0-extra" }], null, "unresolved"],
+    [[{ ...station, device_model: "T9000", main_sw_version: "9.9.9.9" }], null, "unresolved"],
+    [[{ ...station, main_sw_version: "4.2.0.0" }, { ...station, main_sw_version: "4.2.0.1" }], null, "unresolved"],
+    [[], null, "unresolved"],
+  ] as const) {
+    state.updateInventoryDiagnostics(inventoryDiagnostics(parseMegaInventory({ devices: [camera, other, ...rows] })));
+    const report = deviceDecisions(state, camera.device_sn);
+    assert.equal(report?.parentFirmware, firmware);
+    assert.equal(report?.predictedStartRequest, request);
+    assert.doesNotMatch(JSON.stringify(report), /fixture|0000other/);
+  }
+});

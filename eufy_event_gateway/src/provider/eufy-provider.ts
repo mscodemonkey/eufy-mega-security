@@ -8303,6 +8303,7 @@ export function inventoryDiagnostics(devices: readonly MegaInventoryDevice[]): I
     ...(device.parentSerial && device.parentSerial !== device.serial
       ? { decisionParentModel: safeCameraModel(models.get(device.parentSerial) ?? "") } : {}),
     ...(device.firmware && /^\d+(?:\.\d+){1,4}$/.test(device.firmware) ? { decisionFirmware: device.firmware } : {}),
+    ...(device.referenceParentFirmware ? { decisionParentFirmware: device.referenceParentFirmware } : {}),
     ...(device.referenceStartRequest ? { referenceStartRequest: device.referenceStartRequest } : {}),
     ...(device.s340LiveModeEvidence ? { decisionViewMode: device.s340LiveModeEvidence } : {}),
     sources: ["mega"],

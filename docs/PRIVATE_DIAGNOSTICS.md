@@ -20,7 +20,8 @@ events by name, plus operations identified in its indexed handler. Only static
 names are included. A model may declare an action whose handler is unresolved.
 Every model declaring the exact live-start action in this snapshot has a traced
 Android handler. Live-start predictions also require a traced request rule and
-the local inputs for that rule.
+the local inputs for that rule. For an E330 attached to HomeBase 3, the report
+uses the parent station’s firmware when its inventory row is available.
 An unresolved entry means the gateway has insufficient evidence for that decision.
 A model binding alone cannot confirm a particular camera’s firmware, account
 access or delivered video.

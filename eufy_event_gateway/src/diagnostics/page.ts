@@ -283,6 +283,7 @@ function displayDecisions() {
     ...(ref ? ['Model declarations: ' + ref.properties.length + ' properties, ' + ref.actions.length + ' actions, ' + ref.events.length + ' events',
       'Handler bindings: ' + (ref.bindingRoot ? ref.resolvedOperations.length + ' operations identified' : 'model root unresolved')] : []),
     ...(ref ? ['Live view in model declaration: ' + (ref.actions.includes('open_live_stream') ? 'listed' : 'unlisted')] : []),
+    ...(r.parentFirmware ? ['Parent firmware: ' + r.parentFirmware] : []),
     'Live handler (' + r.referenceBuild + '): ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
     'Reported view mode: ' + r.viewMode, 'Platform V2 startup layout: ' + r.platformPlayerLayout,
     'EMS views: ' + (r.views.join(', ') || 'none admitted'),
