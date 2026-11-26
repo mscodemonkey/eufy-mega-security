@@ -123,6 +123,15 @@ test("HTTP consent and token checks, station children, log privacy and subscript
     assert.equal((await fetch(path)).status, 401);
     const signed = createStreamToken("private-camera", Math.floor(Date.now() / 1000) + 60, "synthetic-token");
     assert.equal((await fetch(path + "?access_token=" + signed)).status, 401);
+    const decisionRequest = { method: "POST", headers, body: JSON.stringify({ target: "private-camera" }) };
+    const decisionUrl = path + "/device-decisions";
+    assert.equal((await fetch(decisionUrl, { ...decisionRequest, headers: {} })).status, 401);
+    const inspected = await fetch(decisionUrl, decisionRequest);
+    assert.equal(inspected.status, 200);
+    const report = await inspected.json();
+    assert.deepEqual(report.views, ["default"]);
+    assert.equal(report.liveHandler, "OpenLiveStreamParser1700_V4");
+    assert.doesNotMatch(JSON.stringify(report), /private-camera|private-parent|Private label|synthetic-token/);
     const post = (body: unknown) => fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
     assert.equal((await post({ target: null, seconds: 30, media: true })).status, 400);
     assert.equal((await post({ target: null, seconds: 900, media: false })).status, 400);

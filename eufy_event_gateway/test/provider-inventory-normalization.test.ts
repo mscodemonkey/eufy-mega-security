@@ -50,6 +50,7 @@ test("preserves the provider entry points and normalizes partial and route-speci
     { ...unknownFields, serial: "hub", name: "T8030", model: "T8030", deviceType: 18,
       category: "eufy_security", adminUserId: "fixture-owner" },
     { ...cameraFields, serial: "child", parentSerial: "hub", channel: 1, adminUserId: "fixture-owner",
+      referenceStartRequest: "1350 wrapper",
       reads: { t8171OutdoorMode: false, motionDetectionEnabled: true, batteryLevel: 0, batteryCharging: false } },
   ]);
 });

@@ -18,6 +18,15 @@ export function diagnosticsPage(): string {
 <label>Gateway API token <input id="token" type="password" autocomplete="off" spellcheck="false"></label>
 <button id="load">Load devices</button>
 <label>Device <select id="device"><option value="">All devices</option></select></label>
+<details><summary>Device decisions and view tests</summary>
+<p>Select a device and inspect its current EMS capabilities and the Android model reference. Available views use the gateway’s existing live routes.</p>
+<button id="inspect-device">Inspect selected device</button>
+<label>View <select id="decision-view" disabled></select></label>
+<button id="test-view" disabled>Test selected view</button>
+<button id="export-decision" disabled>Download device report</button>
+<p>The default test opens a three-second local video preview. Other admitted views check for stream data. The report contains test results only.</p>
+<video id="decision-preview" controls muted playsinline hidden style="max-width:100%"></video>
+<pre id="decision-status" role="status">Select a device to begin.</pre></details>
 <details><summary>Read-only state check</summary>
 <p>For T8410, T8417, HomeBase 3 (T8030) T8910 sensors through HomeBase 2 or 3, and S340 (T8170) cameras through HomeBase 3 only. Experimental model controls can stay off. This asks Eufy to authorise one cloud read using your existing account. It leaves settings unchanged and does not enable controls. Cloud readings may lag. The 6250 candidate is not a lens-position readback. The S340 check only reports whether Eufy supplies a usable view-mode candidate. It does not enable the quality selector.</p>
 <p>For a T8910, this checks whether a separate cloud read reports a cached motion time. Recent means within one minute of the gateway clock. It does not confirm motion delivery or enable a polling receiver. Keep your current notification and security settings.</p>
@@ -239,6 +248,114 @@ action('load', async () => {
   for(const target of targets) el('device').add(new Option(target.name + ' (' + target.model + ')', target.serial));
   clearTrialAdmission();
   await status();
+});
+let decisionTarget = null, decisionGeneration = 0, decisionReport = null, viewJob = null, decisionPreviewUrl = null;
+function clearDecisionPreview() {
+  const preview = el('decision-preview');
+  preview.hidden = true;
+  if(decisionPreviewUrl) {
+    preview.onloadedmetadata = null;
+    preview.removeAttribute('src'); preview.load();
+    URL.revokeObjectURL(decisionPreviewUrl); decisionPreviewUrl = null;
+  }
+}
+function resetDecisions() {
+  clearDecisionPreview();
+  ++decisionGeneration;
+  if(viewJob) viewJob.abort();
+  decisionReport = null;
+  decisionTarget = null;
+  el('decision-view').replaceChildren();
+  for(const id of ['decision-view','test-view','export-decision']) el(id).disabled = true;
+  el('decision-status').textContent = 'Select a device to begin.';
+}
+el('device').addEventListener('change', resetDecisions);
+el('token').addEventListener('input', resetDecisions);
+el('load').addEventListener('click', resetDecisions);
+window.addEventListener('pagehide', resetDecisions);
+function displayDecisions() {
+  const r = decisionReport;
+  const operations = r.operations.map(op => op.id + ' (' + op.family + '): ' + (op.offerable ? 'available' : op.deviceEvidence));
+  const ref = r.androidReference;
+  const lines = [
+    r.model + ' · ' + r.catalogue, 'Connection: ' + r.topology + (r.parentModel ? ' via ' + r.parentModel : ''),
+    'Android model library (' + r.referenceSnapshot + '): ' + (ref ? 'exact match' : 'no exact match'),
+    ...(ref ? ['Model declarations: ' + ref.properties.length + ' properties, ' + ref.actions.length + ' actions, ' + ref.events.length + ' events',
+      'Handler bindings: ' + (ref.bindingRoot ? ref.resolvedOperations.length + ' operations identified' : 'model root unresolved')] : []),
+    ...(ref ? ['Live view in model declaration: ' + (ref.actions.includes('open_live_stream') ? 'listed' : 'unlisted')] : []),
+    ...(r.parentFirmware ? ['Parent firmware: ' + r.parentFirmware] : []),
+    'Live handler (' + r.referenceBuild + '): ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
+    'Reported view mode: ' + r.viewMode, 'Platform V2 startup layout: ' + r.platformPlayerLayout,
+    'EMS views: ' + (r.views.join(', ') || 'none admitted'),
+    ...operations, ...Object.entries(r.tests).map(([view, result]) => view + ': ' + result)
+  ];
+  el('decision-status').textContent = lines.join('\\n');
+}
+action('inspect-device', async () => {
+  resetDecisions();
+  const generation = decisionGeneration, target = el('device').value;
+  if(!target) throw Error('Select one device first.');
+  const report = await (await api('bundle/device-decisions', 'POST', { target })).json();
+  if(generation !== decisionGeneration || el('device').value !== target) return;
+  decisionTarget = target;
+  decisionReport = { ...report, tests: {} };
+  for(const view of report.views) el('decision-view').add(new Option(view, view));
+  el('decision-view').disabled = el('test-view').disabled = !report.views.length;
+  el('export-decision').disabled = false;
+  displayDecisions();
+});
+action('test-view', async () => {
+  const generation = decisionGeneration, target = el('device').value, view = el('decision-view').value;
+  if(decisionTarget !== target || !decisionReport?.views.includes(view)) return;
+  const controller = new AbortController();
+  viewJob = controller;
+  el('test-view').disabled = true;
+  clearDecisionPreview();
+  const timeout = setTimeout(() => controller.abort(), 35000);
+  let outcome = 'request failed';
+  try {
+    const route = view === 'default' ? 'record.mp4' : 'live-' + view + '.h264';
+    const result = await fetch('api/cameras/' + encodeURIComponent(target) + '/' + route, {
+      headers: { Authorization: 'Bearer ' + el('token').value, 'Content-Type': 'application/json' },
+      method: view === 'default' ? 'POST' : 'GET', ...(view === 'default' ? { body: JSON.stringify({duration:3}) } : {}),
+      signal: controller.signal, cache: 'no-store'
+    });
+    if(result.ok && view === 'default') {
+      const blob = await result.blob();
+      if(generation !== decisionGeneration) return;
+      decisionPreviewUrl = URL.createObjectURL(blob);
+      const preview = el('decision-preview');
+      preview.onloadedmetadata = () => {
+        if(generation === decisionGeneration && preview.videoWidth && preview.videoHeight) {
+          decisionReport.tests.default = 'Preview dimensions ' + preview.videoWidth + ' × ' + preview.videoHeight;
+          displayDecisions();
+        }
+      };
+      preview.src = decisionPreviewUrl; preview.hidden = false;
+      outcome = 'Preview received. Play it to check the image.';
+    } else if(result.ok && result.body) {
+      const first = await result.body.getReader().read();
+      outcome = first.value?.length ? 'Received stream bytes. Lens and resolution unverified.' : 'Stream ended before video data.';
+    } else outcome = 'HTTP ' + result.status;
+  } catch {
+    outcome = controller.signal.aborted ? 'Timed out waiting for video data.' : 'Request failed.';
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    if(viewJob === controller) viewJob = null;
+    if(generation === decisionGeneration) {
+      decisionReport.tests[view] = outcome;
+      el('test-view').disabled = false;
+      displayDecisions();
+    }
+  }
+});
+action('export-decision', () => {
+  if(!decisionReport || decisionTarget !== el('device').value) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(decisionReport, null, 2)], {type:'application/json'}));
+  const link = document.createElement('a');
+  link.href = url; link.download = 'ems-device-decisions.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 async function trialApi(method, body, serial = el('device').value, signal) {
   if(!serial) throw Error('Select one camera first.');

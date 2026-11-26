@@ -7,6 +7,30 @@ automatically, and capturing diagnostics doesn't change your camera settings.
 You'll need app and integration v0.1.131 or newer. Follow the short request in
 your GitHub issue for which device to choose and what to try.
 
+
+## Inspect one device and test live views
+
+Open **Diagnostics**, load devices, choose one and expand **Device decisions and view tests**.
+**Inspect selected device** reads the gateway’s cached inventory. The report lists the
+EMS catalogue match, sensor descriptors when reported, and the gateway’s current
+capability decisions. The Android lookup covers all 206 exact model codes in the
+19 November 2026 reference snapshot, including devices outside the EMS catalogue.
+The downloaded JSON lists each matched model’s declared properties, actions and
+events by name, plus operations identified in its indexed handler. Only static
+names are included. A model may declare an action whose handler is unresolved.
+Every model declaring the exact live-start action in this snapshot has a traced
+Android handler. Live-start predictions also require a traced request rule and
+the local inputs for that rule. For an E330 attached to HomeBase 3, the report
+uses the parent station’s firmware when its inventory row is available.
+An unresolved entry means the gateway has insufficient evidence for that decision.
+A model binding alone cannot confirm a particular camera’s firmware, account
+access or delivered video.
+
+For a camera, select an available view and choose **Test selected view**. The default
+test requests a three-second clip. Play it locally to check the picture. Other listed
+lens routes check for incoming data only. **Download device report** exports the
+selected device’s diagnostic facts and test results. The preview stays out of the file.
+
 ## Your privacy
 
 The bundle's technical data excludes Eufy account details, email addresses,
@@ -94,8 +118,8 @@ After Python is available, copy and run this block once:
 
 ```sh
 mkdir -p /config/eufy-diagnostics-tools
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.280/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
-curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.280/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.282/eufy_event_gateway/scripts/diagnostic-bundle.py -o /config/eufy-diagnostics-tools/diagnostic-bundle.py
+curl -fL https://raw.githubusercontent.com/mscodemonkey/eufy-mega-security/v0.1.282/eufy_event_gateway/scripts/export-event-image-capture.py -o /config/eufy-diagnostics-tools/export-event-image-capture.py
 python3 /config/eufy-diagnostics-tools/diagnostic-bundle.py list
 ```
 

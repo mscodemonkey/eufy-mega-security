@@ -251,7 +251,13 @@ export class NativeTransportMuxer {
     const rest = pending.filter((item, index) => index !== firstVideo
       && (item.kind === "video" ? index > firstVideo : withAudio && this.#startupAudioBelongs(item, opening)))
       .sort((left, right) => left.at - right.at);
-    for (const item of [opening, ...rest]) {
+    const firstAudio = withAudio ? rest.find(item => item.kind === "audio") : undefined;
+
+    // HA inspects only its first twenty demuxed packets for ADTS. Emit the
+    // selected AAC before the buffered video backlog so HA can select its MP4
+    // bitstream filter. Presentation times still keep the audio after the picture.
+    const startup = firstAudio ? [opening, firstAudio, ...rest.filter(item => item !== firstAudio)] : [opening, ...rest];
+    for (const item of startup) {
       if (this.#closed) return;
       if (item.kind === "video") this.#writeVideo(item.data, item.at, item.continuesPrevious, item.stamp);
       else this.#writeAudio(item.data, item.at, item.stamp);

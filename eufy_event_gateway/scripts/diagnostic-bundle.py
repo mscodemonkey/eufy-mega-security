@@ -22,7 +22,7 @@ import stat
 import sys
 import time
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 import zlib
 
@@ -44,6 +44,11 @@ MOVEMENT_ADMISSION_MESSAGES = {
     "owner_account_required": "The configured account does not own the admitted camera route.",
     "unsupported_identity": "The selected device identity is not admitted for this test.",
 }
+PARAMETER_CHECK_STAGES = frozenset({
+    "disabled", "unauthorized", "invalid_request", "unsupported", "owner_account_required",
+    "owner_binding_unavailable", "busy", "inventory", "binding_changed", "request",
+    "invalid_response", "timeout", "cancelled", "shutdown",
+})
 
 
 class DiagnosticError(Exception):
@@ -51,12 +56,18 @@ class DiagnosticError(Exception):
 
 
 class DiagnosticRequestError(DiagnosticError):
-    """Retain only an HTTP status, never an upstream URL, body or exception."""
+    """Retain an HTTP status and optional fixed state-check refusal until reporting.
 
-    def __init__(self, status: int | None = None):
-        """Use a missing status when no accepted HTTP response was available."""
+    Network details and response bodies remain outside the terminal boundary.
+    The request worker admits a stage only for the parameter-check endpoint.
+    """
+
+    def __init__(self, status: int | None = None, stage: str | None = None):
+        """Drop unknown stages rather than echoing an upstream failure message."""
         self.status = status if type(status) is int and 100 <= status <= 599 else None
-        message = f"Gateway request failed (HTTP {self.status})." if self.status else "Gateway connection failed."
+        self.stage = stage if isinstance(stage, str) and stage in PARAMETER_CHECK_STAGES else None
+        detail = f", state_check_stage={self.stage}" if self.stage and self.status in {400, 409} else ""
+        message = f"Gateway request failed (HTTP {self.status}{detail})." if self.status else "Gateway connection failed."
         super().__init__(message)
 
 
@@ -82,8 +93,21 @@ def request(url: str, token: str, method: str = "GET", value=None, *, timeout: i
         raise
     except HTTPError as error:
         status = error.code
-        error.close()
-        raise DiagnosticRequestError(status) from None
+        stage = None
+        try:
+            if method == "POST" and urlsplit(url).path == "/api/diagnostics/parameter-check" and status in {400, 409}:
+                body = error.read(1025)
+                if len(body) <= 1024:
+                    fields = json.loads(body, object_pairs_hook=list)
+                    if (isinstance(fields, list) and len(fields) == 1 and isinstance(fields[0], tuple)
+                            and fields[0][0] == "stage" and isinstance(fields[0][1], str)
+                            and fields[0][1] in PARAMETER_CHECK_STAGES):
+                        stage = fields[0][1]
+        except Exception:
+            pass
+        finally:
+            error.close()
+        raise DiagnosticRequestError(status, stage) from None
     except Exception:
         raise DiagnosticRequestError() from None
 
