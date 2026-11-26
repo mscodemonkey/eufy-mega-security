@@ -58,6 +58,9 @@ test("direct and HomeBase rules stay specific to each recovered handler", async 
     ["OpenLiveStreamParser1700_V2", "T8030000fixture", "1700 wrapper"],
     ["OpenLiveStreamParser1350_V3 (v3)", "T8010fixture", "1350 wrapper with variant 5"],
     ["OpenLiveStreamParser1350_V3 (v6)", "unrecognized", "recorder-style start request"],
+    ["OpenLiveStreamParser1350_V3 (v7)", "T8111fixture", "direct 1700 wrapper"],
+    ["OpenLiveStreamParser1350_V3 (v7)", "T8010fixture", "1350 wrapper"],
+    ["OpenLiveStreamParser1350_V3 (v7)", "T8030000fixture", undefined],
     ["OpenLiveStreamParser1350_V3 (v8)", "T8030000fixture", "1700 wrapper"],
     ["OpenLiveStreamParser1350_V3", "T8030001fixture", undefined],
     ["unreviewed", "T8010fixture", undefined],
@@ -99,7 +102,6 @@ test("all 206 retained Android models resolve independently of numeric type and 
   const appliance = reportFor("T2070");
   assert.ok(appliance.androidReference?.actions.length);
   assert.equal(appliance.liveHandler, "unresolved");
-  assert.equal(reportFor("T8114").androidReference?.bindingRoot, false);
   assert.equal(reportFor("T8170-FAKE").androidReference, null);
 });
 
@@ -112,5 +114,33 @@ test("reference-only variants predict the traced request with no catalogue type"
     const serial = model + "fixture";
     const [device] = parseMegaInventory({ devices: [{ device_sn: serial, device_model: model, parent_sn: serial, params: [] }] });
     assert.equal(device?.referenceStartRequest, expected, model);
+  }
+});
+
+test("every model declaring live start has a traced source binding", async () => {
+  const { androidModelReference } = await import("../src/diagnostics/model-reference.js");
+  const declared = androidModels.filter(row => row.actions.includes("open_live_stream"));
+  assert.equal(declared.length, 101);
+  for (const { model } of declared) {
+    const reference = androidModelReference(model);
+    assert.ok(reference?.bindingRoot, model);
+    assert.ok(reference.liveHandler, model);
+    assert.ok(reference.resolvedOperations.includes("open_live_stream"), model);
+  }
+
+  // Exercise delegation, inheritance, factory registration and model-specific versions.
+  for (const [model, handler] of [
+    ["T8114", "OpenLiveStreamParser"],
+    ["T8200", "OpenLiveStreamParser1350_V3 (v2)"],
+    ["T8214C", "OpenLiveStreamParser1350_V3"],
+    ["T8354", "OpenLiveStreamParser1700_V4"],
+    ["T8416", "OpenLiveStreamParser1700_V4"],
+    ["T8422", "OpenLiveStreamParser1700_V3"],
+    ["T8532", "OpenLiveStreamParser1350_V3 (v6)"],
+    ["T85M0", "OpenLiveStreamParser1350_V3"],
+    ["T8600", "OpenLiveStreamParser1350_V3 (v7)"],
+    ["T8L60", "OpenLiveStreamParser1350_V3 (v6)"],
+  ] as const) {
+    assert.equal(androidModelReference(model)?.liveHandler, handler, model);
   }
 });

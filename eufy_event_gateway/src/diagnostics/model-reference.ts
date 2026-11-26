@@ -46,6 +46,11 @@ export function predictLiveRequest(handler: string | undefined, parent: string, 
   if (handler === "OpenLiveStreamParser1700_V5") return "1350 wrapper";
   if (handler === "OpenLiveStreamParser1350_V3 (v4)") return "basic live start";
   if (handler === "OpenLiveStreamParser1350_V3 (v3)") return "1350 wrapper with variant 5";
+  if (handler === "OpenLiveStreamParser1350_V3 (v7)") {
+    // HomeBase 3 uses the recorder-style request above station firmware 4.2.0.0. The caller supplies no station firmware here.
+    if (direct) return "direct 1700 wrapper";
+    return hb2 ? "1350 wrapper" : undefined;
+  }
   if (handler === "OpenLiveStreamParser1350_V3 (v8)" && (direct || hb3)) return "1700 wrapper";
   if (["OpenLiveStreamParser1350_V3", "OpenLiveStreamParser1350_V3 (v1)", "OpenLiveStreamParser1350_V3 (v2)", "OpenLiveStreamParser1350_V3 (v8)"].includes(handler)) return direct ? "direct 1700 wrapper" : "1350 wrapper";
   return undefined;

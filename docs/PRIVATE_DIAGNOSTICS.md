@@ -18,9 +18,12 @@ capability decisions. The Android lookup covers all 206 exact model codes in the
 The downloaded JSON lists each matched model’s declared properties, actions and
 events by name, plus operations identified in its indexed handler. Only static
 names are included. A model may declare an action whose handler is unresolved.
-Live-start predictions require a separately traced request rule and local inputs.
-An unresolved entry means the gateway has insufficient evidence for that decision. A model binding alone cannot confirm a
-particular camera’s firmware, account access or delivered video.
+Every model declaring the exact live-start action in this snapshot has a traced
+Android handler. Live-start predictions also require a traced request rule and
+the local inputs for that rule.
+An unresolved entry means the gateway has insufficient evidence for that decision.
+A model binding alone cannot confirm a particular camera’s firmware, account
+access or delivered video.
 
 For a camera, select an available view and choose **Test selected view**. The default
 test requests a three-second clip. Play it locally to check the picture. Other listed
