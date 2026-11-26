@@ -97,3 +97,28 @@ const operationModels: ReadonlyMap<string, readonly string[]> = new Map([
 export function referenceOperations(model: string): string[] {
   return [...operationModels].filter(([, models]) => models.includes(model)).map(([operation]) => operation);
 }
+
+/**
+ * Predict the outer request family for traced direct, HB2 and standard HB3 paths.
+ * The caller supplies a reviewed exact-model binding. Other station variants
+ * remain unresolved unless the binding itself makes the choice unconditionally.
+ */
+export function predictLiveRequest(handler: string | undefined, parent: string, serial: string, outdoor: boolean | undefined): string | undefined {
+  if (!handler) return undefined;
+  if (handler === "OpenLiveStreamParser1350_V3 (v6)") return "recorder-style start request";
+  if (!parent) return undefined;
+  if (handler === "OpenLiveStreamParser1700_V4") return parent === serial ? "direct 1700 wrapper" : "1350 wrapper";
+  if (outdoor === undefined) return undefined;
+  const hb2 = parent.startsWith("T8010");
+  const hb3 = parent.startsWith("T8030") && parent.length >= 8 && parent[7] !== "1";
+  const direct = outdoor || (parent === serial && !/^T(?:80|90|8N|7000)/.test(parent));
+  if (!direct && !hb2 && !hb3) return undefined;
+  if (handler === "OpenLiveStreamParser") return direct ? "basic live start" : "1350 wrapper";
+  if (handler === "OpenLiveStreamParser1700_V2" || handler === "OpenLiveStreamParser1700_V3") return "1700 wrapper";
+  if (handler === "OpenLiveStreamParser1700_V5") return "1350 wrapper";
+  if (handler === "OpenLiveStreamParser1350_V3 (v4)") return "basic live start";
+  if (handler === "OpenLiveStreamParser1350_V3 (v3)") return "1350 wrapper with variant 5";
+  if (handler === "OpenLiveStreamParser1350_V3 (v8)" && (direct || hb3)) return "1700 wrapper";
+  if (["OpenLiveStreamParser1350_V3", "OpenLiveStreamParser1350_V3 (v1)", "OpenLiveStreamParser1350_V3 (v2)", "OpenLiveStreamParser1350_V3 (v8)"].includes(handler)) return direct ? "direct 1700 wrapper" : "1350 wrapper";
+  return undefined;
+}

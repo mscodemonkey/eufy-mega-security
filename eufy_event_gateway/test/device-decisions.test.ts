@@ -39,11 +39,27 @@ test("S340 reference distinguishes HB3 variants and outdoor selection without re
   const { parseMegaInventory } = await import("../src/provider/inventory-normalization.js");
   const camera = { device_sn: "T8170-PRIVATE", device_model: "T8170", device_type: 48, params: [] };
   for (const [parent, params, expected] of [
-    ["T8030000PRIVATE", [], "station 1350 wrapper"], ["T8030001PRIVATE", [], "recorder-style start request"],
+    ["T8030000PRIVATE", [], "1350 wrapper"], ["T8030001PRIVATE", [], "recorder-style start request"],
     ["T8030000PRIVATE", [{ param_type: 6271, param_value: 1 }], "direct 1700 wrapper"],
     ["T8170-PRIVATE", [], "direct 1700 wrapper"], ["unidentified", [], undefined],
   ] as const) {
     const [parsed] = parseMegaInventory({ devices: [{ ...camera, parent_sn: parent, params }] });
-    assert.equal(parsed?.s340StartRequest, expected);
+    assert.equal(parsed?.referenceStartRequest, expected);
+  }
+});
+
+test("direct and HomeBase rules stay specific to each recovered handler", async () => {
+  const { predictLiveRequest } = await import("../src/diagnostics/model-reference.js");
+  for (const [handler, parent, expected] of [
+    ["OpenLiveStreamParser", "T8111fixture", "basic live start"],
+    ["OpenLiveStreamParser", "T8010fixture", "1350 wrapper"],
+    ["OpenLiveStreamParser1700_V2", "T8030000fixture", "1700 wrapper"],
+    ["OpenLiveStreamParser1350_V3 (v3)", "T8010fixture", "1350 wrapper with variant 5"],
+    ["OpenLiveStreamParser1350_V3 (v6)", "unrecognized", "recorder-style start request"],
+    ["OpenLiveStreamParser1350_V3 (v8)", "T8030000fixture", "1700 wrapper"],
+    ["OpenLiveStreamParser1350_V3", "T8030001fixture", undefined],
+    ["unreviewed", "T8010fixture", undefined],
+  ] as const) {
+    assert.equal(predictLiveRequest(handler, parent, "T8111fixture", false), expected);
   }
 });

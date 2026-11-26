@@ -825,7 +825,7 @@ export interface InventoryDiagnostic {
   readonly decisionParentModel?: string;
   readonly decisionFirmware?: string;
   readonly decisionViewMode?: string;
-  readonly s340StartRequest?: string;
+  readonly referenceStartRequest?: string;
   readonly upstreamIsCamera: boolean;
   readonly acceptedAsCamera: boolean;
   readonly megaDeviceType: number | null;

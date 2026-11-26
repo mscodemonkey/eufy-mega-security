@@ -20,12 +20,9 @@ export function deviceDecisions(state: GatewayState, serial: string) {
   const sensors = inventory?.sensorInventory ?? { status: "missing" as const };
   const reference = matches.length === 1 ? liveBinding(model) : undefined;
   const topology = inventory?.decisionTopology ?? "unknown";
-  const startup = reference === "OpenLiveStreamParser1700_V4" && topology !== "unknown"
-    ? topology === "direct" ? "direct 1700 wrapper" : "station 1350 wrapper"
-    : reference === "OpenLiveStreamParser1350_V3 (v6)" ? "recorder-style start request" : reference && inventory?.s340StartRequest ? inventory.s340StartRequest : "unresolved";
   return {
     referenceBuild: "6.1.20_31181", model, deviceType: type, catalogue: matches.length === 1 ? matches[0]!.status : "unresolved",
-    topology, predictedStartRequest: startup, parentModel: inventory?.decisionParentModel ?? null,
+    topology, predictedStartRequest: reference ? inventory?.referenceStartRequest ?? "unresolved" : "unresolved", parentModel: inventory?.decisionParentModel ?? null,
     firmware: inventory?.decisionFirmware ?? null,
     referenceOperations: matches.length === 1 ? referenceOperations(model) : [],
     liveHandler: reference ?? "unresolved", sensorInventory: sensors,

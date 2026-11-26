@@ -278,7 +278,7 @@ function displayDecisions() {
   const operations = r.operations.map(op => op.id + ' (' + op.family + '): ' + (op.offerable ? 'available' : op.deviceEvidence));
   const lines = [
     r.model + ' · ' + r.catalogue, 'Connection: ' + r.topology + (r.parentModel ? ' via ' + r.parentModel : ''),
-    'Android live handler: ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
+    'Android reference ' + r.referenceBuild + ': ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
     'Reported view mode: ' + r.viewMode, 'Platform V2 startup layout: ' + r.platformPlayerLayout,
     'EMS views: ' + (r.views.join(', ') || 'none admitted'),
     ...operations, ...Object.entries(r.tests).map(([view, result]) => view + ': ' + result)
@@ -290,7 +290,7 @@ action('inspect-device', async () => {
   const generation = decisionGeneration, target = el('device').value;
   if(!target) throw Error('Select one device first.');
   const report = await (await api('bundle/device-decisions', 'POST', { target })).json();
-  if(generation !== decisionGeneration) return;
+  if(generation !== decisionGeneration || el('device').value !== target) return;
   decisionTarget = target;
   decisionReport = { ...report, tests: {} };
   for(const view of report.views) el('decision-view').add(new Option(view, view));
