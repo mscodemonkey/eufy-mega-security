@@ -12,6 +12,7 @@
  * forwarding private event fields into the logger. Periodic cloud refreshes admit
  * newly added devices without replacing push receivers or active media sessions.
  */
+import { safeCameraModel } from "../domain/safe-camera-model.js";
 import { homeBaseLocalAddress, homeBaseLocalAddressSelection, type HomeBaseAddress } from "./homebase-address.js";
 import { QuickResponseListError, isQuickResponseRoute, validQuickResponseId, type DoorbellQuickResponse } from "./quick-responses.js";
 import { ppcsSourceDiagnostic } from "../diagnostics/ppcs-source-diagnostic.js";
@@ -8292,10 +8293,17 @@ function compareFirmware(value: string, minimum: readonly number[]): number {
 
 /** Explain camera filtering decisions without exposing raw cloud payloads. */
 export function inventoryDiagnostics(devices: readonly MegaInventoryDevice[]): InventoryDiagnostic[] {
+  const models = new Map(devices.map(device => [device.serial, device.model]));
   return devices.map((device) => ({
     serial: device.serial,
     name: device.name,
     model: device.model,
+    ...(device.sensorInventory ? { sensorInventory: device.sensorInventory } : {}),
+    decisionTopology: !device.parentSerial ? "unknown" : device.parentSerial === device.serial ? "direct" : "attached",
+    ...(device.parentSerial && device.parentSerial !== device.serial
+      ? { decisionParentModel: safeCameraModel(models.get(device.parentSerial) ?? "") } : {}),
+    ...(device.firmware && /^\d+(?:\.\d+){1,4}$/.test(device.firmware) ? { decisionFirmware: device.firmware } : {}),
+    ...(device.s340LiveModeEvidence ? { decisionViewMode: device.s340LiveModeEvidence } : {}),
     sources: ["mega"],
     upstreamIsCamera: false,
     acceptedAsCamera: isSupportedMegaCamera(device),

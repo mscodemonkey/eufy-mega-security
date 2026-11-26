@@ -5,6 +5,7 @@
  * publication and cleanup. Timestamp validation still uses the current clock.
  */
 
+import { sensorInventory, type SensorInventory } from "../diagnostics/device-decisions.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { readCameraSetting } from "./camera-settings.js";
 import { e21Readings, type E21Readings } from "./e21-profile.js";
@@ -56,6 +57,7 @@ export interface MegaInventoryDevice {
   readonly reads: MegaInventoryReads;
 
   /** Content-free reason for withholding the mode, separate from reported device state. */
+  readonly sensorInventory?: SensorInventory;
   readonly s340LiveModeEvidence?: S340LiveModeEvidence;
 }
 
@@ -216,6 +218,7 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       })() : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
+      sensorInventory: sensorInventory(value.params),
       ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
