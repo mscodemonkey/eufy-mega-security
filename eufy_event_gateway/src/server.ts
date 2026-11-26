@@ -35,7 +35,7 @@ import { recordGeneralRtcClip } from "./stream/general-rtc-recording.js";
 import type { GeneralRtcTrialLease } from "./provider/general-rtc-trial.js";
 import { validateStoredMedia } from "./stream/stored-recordings.js";
 import { isE30LockSettingChange } from "./domain/types.js";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { CameraControlDeadlineError } from "./provider/camera-control-deadline.js";
 import { deviceDecisions } from "./diagnostics/device-decisions.js";
@@ -83,6 +83,8 @@ export class GatewayServer {
   #rawHistoryExports = 0;
   #server: Server | null = null;
   #verificationSubmission: Promise<void> | null = null;
+  readonly #captchaFormKey = randomBytes(32);
+  #captchaSubmission: Promise<void> | null = null;
   #bundle: BundleCapture | null = null;
   #bundleCleanup: (() => void) | null = null;
   #sampleBundleTransport: (() => void) | null = null;
@@ -1473,11 +1475,18 @@ export class GatewayServer {
     }
   }
 
+  /** Bind the form to the displayed image without sending the upstream challenge ID. */
+  #captchaFormVersion(challenge: { id: string; image: string }): string {
+    return createHmac("sha256", this.#captchaFormKey)
+      .update(JSON.stringify([challenge.id, challenge.image]))
+      .digest("base64url");
+  }
+
   #authenticationPage(response: ServerResponse, message = ""): void {
     const challenge = this.captchaProvider?.getCaptchaChallenge() ?? null;
     const connection = this.state.getConnection();
     const content = challenge
-      ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action=""><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
+      ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action=""><input type="hidden" name="challenge_version" value="${this.#captchaFormVersion(challenge)}"><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
       : this.captchaProvider?.isVerificationRequired()
         ? `<p>Eufy sent a six-digit verification code to your account email.</p><form id="verification-form" method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button id="verification-submit" type="submit">Verify and connect</button></form><script>document.getElementById("verification-form").addEventListener("submit",()=>{const button=document.getElementById("verification-submit");button.disabled=true;button.textContent="Checking code...";});</script>`
       : connection.state === "connected"
@@ -1495,8 +1504,14 @@ export class GatewayServer {
     if (!this.captchaProvider) return this.#authenticationPage(response, "CAPTCHA authentication is unavailable.");
     const answer = values.get("answer")?.trim() ?? "";
     if (!answer || answer.length > 32) return this.#authenticationPage(response, "Enter the characters shown in the image.");
+    const current = this.captchaProvider.getCaptchaChallenge();
+    if (!current || values.get("challenge_version") !== this.#captchaFormVersion(current)) {
+      return this.#authenticationPage(response, "The sign-in challenge changed. Use the current image if one is shown.");
+    }
+    if (this.#captchaSubmission) return this.#authenticationPage(response, "A CAPTCHA answer is already being checked.");
     try {
-      await this.captchaProvider.submitCaptcha(answer);
+      this.#captchaSubmission = this.captchaProvider.submitCaptcha(answer);
+      await this.#captchaSubmission;
       const nextChallenge = this.captchaProvider.getCaptchaChallenge();
       return this.#authenticationPage(
         response,
@@ -1504,6 +1519,8 @@ export class GatewayServer {
       );
     } catch (error) {
       return this.#authenticationPage(response, `Eufy could not complete sign-in: ${safeError(error)}`);
+    } finally {
+      this.#captchaSubmission = null;
     }
   }
 

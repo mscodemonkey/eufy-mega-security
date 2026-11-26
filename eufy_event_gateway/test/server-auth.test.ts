@@ -72,8 +72,12 @@ for (const errorMessage of [
       {} as LiveStreamManager, {} as CameraProvider, null, captcha);
     try {
       await server.listen();
-      const response = await fetch(`http://127.0.0.1:${server.port}/`, {
-        method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "answer=ABCD",
+      const url = `http://127.0.0.1:${server.port}/`;
+      const page = await (await fetch(url)).text();
+      const version = /name="challenge_version" value="([^"]+)"/.exec(page)?.[1];
+      assert.ok(version);
+      const response = await fetch(url, {
+        method: "POST", body: new URLSearchParams({ answer: "ABCD", challenge_version: version }),
       });
       assert.equal(response.status, 200);
       const body = await response.text();
@@ -147,6 +151,74 @@ test("shares one in-flight verification attempt across duplicate submissions", a
     assert.equal(submissions, 1);
   } finally {
     completeVerification();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not submit an answer after the displayed CAPTCHA has changed", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  let challenge = { id: "private-fixture-first", image: "AA==" };
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => challenge,
+    isVerificationRequired: () => false,
+    submitCaptcha: async () => { assert.fail("stale answers must stay local"); },
+    submitVerification: async () => { assert.fail("verification must not be submitted"); },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.port}/`;
+    const page = await (await fetch(url)).text();
+    assert.doesNotMatch(page, /private-fixture-first/);
+    const version = /name="challenge_version" value="([^"]+)"/.exec(page)?.[1];
+    assert.ok(version);
+    challenge = { id: "private-fixture-next", image: "AQ==" };
+    const response = await fetch(url, {
+      method: "POST", body: new URLSearchParams({ answer: "ABCD", challenge_version: version }),
+    });
+    assert.match(await response.text(), /sign-in challenge changed/);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("keeps overlapping CAPTCHA submissions local while the first answer is checked", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eufy-auth-http-"));
+  const submission = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  let calls = 0;
+  const captcha: CaptchaProvider = {
+    getCaptchaChallenge: () => ({ id: "synthetic", image: "AA==" }),
+    isVerificationRequired: () => false,
+    submitCaptcha: async () => {
+      calls++;
+      started.resolve();
+      await submission.promise;
+    },
+    submitVerification: async () => { assert.fail("verification must not be submitted"); },
+  };
+  const server = new GatewayServer({ ...loadConfig({}), port: 0 }, new GatewayState(), new SnapshotStore(directory),
+    {} as LiveStreamManager, {} as CameraProvider, null, captcha);
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.port}/`;
+    const page = await (await fetch(url)).text();
+    const version = /name="challenge_version" value="([^"]+)"/.exec(page)?.[1];
+    assert.ok(version);
+    const post = (answer: string) => fetch(url, {
+      method: "POST", body: new URLSearchParams({ answer, challenge_version: version }),
+    });
+    const first = post("ABCD");
+    await started.promise;
+    assert.match(await (await post("EFGH")).text(), /already being checked/);
+    assert.equal(calls, 1);
+    submission.resolve();
+    assert.equal((await first).status, 200);
+  } finally {
+    submission.resolve();
     await server.close();
     await rm(directory, { recursive: true, force: true });
   }
