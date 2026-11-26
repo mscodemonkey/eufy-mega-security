@@ -38,6 +38,7 @@ import { isE30LockSettingChange } from "./domain/types.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { CameraControlDeadlineError } from "./provider/camera-control-deadline.js";
+import { deviceDecisions } from "./diagnostics/device-decisions.js";
 import { BundleCapture, diagnosticTargets, type DiagnosticMedia } from "./diagnostics/bundle-capture.js";
 import { diagnosticsPage } from "./diagnostics/page.js";
 import type { EventImageCapture } from "./diagnostics/event-image-capture.js";
@@ -186,6 +187,17 @@ export class GatewayServer {
   }
 
   async #diagnosticBundle(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
+    if (path === "/api/diagnostics/bundle/device-decisions" && request.method === "POST") {
+      const body = await readJson(request);
+      const serial = typeof body.target === "string" ? body.target : "";
+      const report = deviceDecisions(this.state, serial);
+      if (!report) return json(response, 404, { error: "Select a discovered device" });
+      return json(response, 200, { ...report, views: [
+        ...(report.streamAvailable ? ["default"] : []),
+        ...(this.provider.mainLensViewAdmitted?.(serial) ? ["main"] : []),
+        ...(this.provider.nvrSharedLensViewsAdmitted?.(serial) ? ["fixed", "movable"] : []),
+      ] });
+    }
     if (path === "/api/diagnostics/bundle/targets" && request.method === "GET") {
       return json(response, 200, { devices: diagnosticTargets(this.state) });
     }

@@ -820,6 +820,12 @@ export interface InventoryDiagnostic {
   readonly name: string;
   readonly model: string;
   readonly sources: readonly ("mega" | "simulated")[];
+  readonly sensorInventory?: import("../provider/sensor-inventory.js").SensorInventory;
+  readonly decisionTopology?: "direct" | "attached" | "unknown";
+  readonly decisionParentModel?: string;
+  readonly decisionFirmware?: string;
+  readonly decisionViewMode?: string;
+  readonly referenceStartRequest?: string;
   readonly upstreamIsCamera: boolean;
   readonly acceptedAsCamera: boolean;
   readonly megaDeviceType: number | null;

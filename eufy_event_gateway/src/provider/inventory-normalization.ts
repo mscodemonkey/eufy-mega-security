@@ -5,6 +5,8 @@
  * publication and cleanup. Timestamp validation still uses the current clock.
  */
 
+import { liveBinding, predictLiveRequest } from "../diagnostics/model-reference.js";
+import { sensorInventory, type SensorInventory } from "./sensor-inventory.js";
 import { guardModeCustomNames, guardModeMetadataShape, guardModeMetadataStructure } from "../mega/guard-mode-metadata.js";
 import { readCameraSetting } from "./camera-settings.js";
 import { e21Readings, type E21Readings } from "./e21-profile.js";
@@ -54,6 +56,12 @@ export interface MegaInventoryDevice {
   readonly guardModeNames?: Readonly<Record<number, string>>;
   readonly paramTypes: readonly number[];
   readonly reads: MegaInventoryReads;
+
+  /** Latest bounded sensor-list projection for optional device diagnostics. */
+  readonly sensorInventory?: SensorInventory;
+
+  /** Android live-start prediction derived before the private parent identity is discarded. */
+  readonly referenceStartRequest?: string;
 
   /** Content-free reason for withholding the mode, separate from reported device state. */
   readonly s340LiveModeEvidence?: S340LiveModeEvidence;
@@ -179,6 +187,8 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       ? readS340LiveModeEvidence(Array.isArray(value.params) ? value.params.flatMap(row => (
         isRecord(row) && integer(row.param_type) === 6243 ? [{ param_type: 6243, param_value: row.param_value }] : []
       )) : []) : undefined;
+    const sensors = sensorInventory(value.params);
+    const referenceStartRequest = referenceStart(model, serial, value.parent_sn, value.params);
     const lastChargingDays = safeLastChargingDays(value.charging_days);
     devices.push({
       serial,
@@ -216,6 +226,8 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       })() : {}),
       paramTypes: safeParamTypes(value.params),
       reads: lastChargingDays === undefined ? reads : { ...reads, lastChargingDays },
+      ...(sensors.status !== "missing" ? { sensorInventory: sensors } : {}),
+      ...(referenceStartRequest ? { referenceStartRequest } : {}),
       ...(s340ModeEvidence ? { s340LiveModeEvidence: s340ModeEvidence } : {}),
     });
   }
@@ -253,6 +265,18 @@ export function inventoryBindingChanged(existing: MegaInventoryDevice, fresh: Me
   return existing.parentSerial !== fresh.parentSerial || existing.channel !== fresh.channel
     || existing.model !== fresh.model || existing.deviceType !== fresh.deviceType
     || existing.category !== fresh.category || existing.adminUserId !== fresh.adminUserId;
+}
+
+/** Evaluate only known parent and outdoor inputs before dropping the raw device response. */
+function referenceStart(model: string, serial: string, parent: unknown, params: unknown): string | undefined {
+  if (typeof parent !== "string") return undefined;
+  const rows = Array.isArray(params) ? params.filter(p => p?.param_type === 6271) : undefined;
+  const outdoor = rows && rows.length <= 1
+    ? [true, 1, "1", "true"].some(on => on === rows[0]?.param_value) : undefined;
+  if (model === "T8170" && parent.startsWith("T8030") && parent[7] === "1" && outdoor === false) {
+    return "recorder-style start request";
+  }
+  return predictLiveRequest(liveBinding(model), parent, serial, outdoor);
 }
 
 function safeLastChargingDays(value: unknown): number | undefined {
