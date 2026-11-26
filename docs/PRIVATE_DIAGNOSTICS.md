@@ -12,9 +12,14 @@ your GitHub issue for which device to choose and what to try.
 
 Open **Diagnostics**, load devices, choose one and expand **Device decisions and view tests**.
 **Inspect selected device** reads the gateway’s cached inventory. The report lists the
-exact catalogue match, Android reference bindings, sensor descriptors when reported,
-and the gateway’s current capability decisions. An unresolved entry means the gateway
-has insufficient evidence for that decision. A model binding alone cannot confirm a
+EMS catalogue match, sensor descriptors when reported, and the gateway’s current
+capability decisions. The Android lookup covers all 206 exact model codes in the
+19 November 2026 reference snapshot, including devices outside the EMS catalogue.
+The downloaded JSON lists each matched model’s declared properties, actions and
+events by name, plus operations identified in its indexed handler. Only static
+names are included. A model may declare an action whose handler is unresolved.
+Live-start predictions require a separately traced request rule and local inputs.
+An unresolved entry means the gateway has insufficient evidence for that decision. A model binding alone cannot confirm a
 particular camera’s firmware, account access or delivered video.
 
 For a camera, select an available view and choose **Test selected view**. The default

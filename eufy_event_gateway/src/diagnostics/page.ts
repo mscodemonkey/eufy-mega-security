@@ -276,9 +276,14 @@ window.addEventListener('pagehide', resetDecisions);
 function displayDecisions() {
   const r = decisionReport;
   const operations = r.operations.map(op => op.id + ' (' + op.family + '): ' + (op.offerable ? 'available' : op.deviceEvidence));
+  const ref = r.androidReference;
   const lines = [
     r.model + ' · ' + r.catalogue, 'Connection: ' + r.topology + (r.parentModel ? ' via ' + r.parentModel : ''),
-    'Android reference ' + r.referenceBuild + ': ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
+    'Android model library (' + r.referenceSnapshot + '): ' + (ref ? 'exact match' : 'no exact match'),
+    ...(ref ? ['Model declarations: ' + ref.properties.length + ' properties, ' + ref.actions.length + ' actions, ' + ref.events.length + ' events',
+      'Handler bindings: ' + (ref.bindingRoot ? ref.resolvedOperations.length + ' operations identified' : 'model root unresolved')] : []),
+    ...(ref ? ['Live view in model declaration: ' + (ref.actions.includes('open_live_stream') ? 'listed' : 'unlisted')] : []),
+    'Live handler (' + r.referenceBuild + '): ' + r.liveHandler, 'Predicted start request: ' + r.predictedStartRequest, 'Reviewed app operations: ' + (r.referenceOperations.join(', ') || 'none identified'), 'Sensor list: ' + (r.sensorInventory.sensors?.map(s => 'type ' + s.type + ', ID ' + s.id).join(' / ') || r.sensorInventory.status),
     'Reported view mode: ' + r.viewMode, 'Platform V2 startup layout: ' + r.platformPlayerLayout,
     'EMS views: ' + (r.views.join(', ') || 'none admitted'),
     ...operations, ...Object.entries(r.tests).map(([view, result]) => view + ': ' + result)
