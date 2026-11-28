@@ -86,8 +86,8 @@ test("retains only the device's own reported firmware and hardware metadata", ()
 });
 
 test("recovers a HomeBase parent from param 40008 when the cloud reports the camera self-parented", () => {
-  const station = "T8030P1324421FCF";
-  const camera = "T8420N6021170D64";
+  const station = "synthetic-station-a";
+  const camera = "synthetic-camera-a";
   const devices = parseMegaInventory({ devices: [
     { device_sn: camera, device_model: "T8420X", device_type: 3, parent_sn: camera,
       device_channel: 0, params: [{ param_type: 40008, param_value: station }] },
@@ -96,6 +96,15 @@ test("recovers a HomeBase parent from param 40008 when the cloud reports the cam
   const row = devices.find(device => device.serial === camera)!;
   assert.equal(row.parentSerial, station);
   assert.equal(row.channel, 0);
+});
+
+test("an explicit station_sn wins over a self parent_sn and a conflicting param 40008", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "synthetic-camera-b", device_model: "T8420X", device_type: 3,
+      parent_sn: "synthetic-camera-b", station_sn: "synthetic-station-b",
+      params: [{ param_type: 40008, param_value: "synthetic-station-c" }] },
+  ] });
+  assert.equal(devices[0]?.parentSerial, "synthetic-station-b");
 });
 
 test("param 40008 never overrides an explicit non-self parent", () => {

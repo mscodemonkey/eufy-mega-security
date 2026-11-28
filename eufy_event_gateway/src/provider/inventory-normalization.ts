@@ -172,12 +172,20 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
     seen.add(serial);
     const model = safeValue(value.device_model, 100) ?? "Unknown Eufy device";
     const deviceType = integer(value.device_type);
-    let parentSerial = safeValue(value.parent_sn, 128) ?? safeValue(value.station_sn, 128) ?? "";
+    const parentSn = safeValue(value.parent_sn, 128) ?? "";
+    const stationSn = safeValue(value.station_sn, 128) ?? "";
+    // Prefer any explicit non-self parent first, regardless of field order:
+    // a self parent_sn must not shadow an explicit station_sn.
+    let parentSerial = parentSn !== serial && parentSn.length > 0
+      ? parentSn
+      : stationSn !== serial && stationSn.length > 0
+        ? stationSn
+        : parentSn !== "" ? parentSn : stationSn;
     // Some Eufy inventories report a self-parented camera even when it is
     // physically attached to a HomeBase. The station serial is then carried
     // in the params array as param_type 40008. Use it only when the row
-    // currently has no non-self parent, so an explicit parent_sn/station_sn
-    // is never overridden.
+    // has no explicit non-self parent at all, so an explicit
+    // parent_sn/station_sn is never overridden.
     if (!parentSerial || parentSerial === serial) {
       if (Array.isArray(value.params)) {
         for (const row of value.params) {
