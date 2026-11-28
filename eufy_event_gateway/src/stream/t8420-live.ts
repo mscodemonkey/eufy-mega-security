@@ -3,6 +3,12 @@
  * The PPCS session owns negotiation, packet lifetime and cleanup. This module
  * only checks its exact route and constructs the captured start value consumed
  * by that session. It neither selects a cipher nor sends a command.
+ *
+ * Only the original T8420, type 3, after an encrypted gateway-info whose
+ * cipher is 65433 and whose authenticated key lookup explicitly returned no
+ * key, may select the captured alternate start. The T8420X hardware variant
+ * rejects this start (observed P2P -103) and instead uses the standard 1700
+ * START_LIVE without the extValue field, on the normal media path.
  */
 
 /** Inventory and explicit opt-in facts required before considering the alternate start. */

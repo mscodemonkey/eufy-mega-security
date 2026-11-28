@@ -37,6 +37,8 @@ import {
   buildStandaloneGuardModeValue,
   buildStandaloneLiveStartPayload,
   buildStandaloneLiveStartValue,
+  buildT8420XLiveStartValue,
+  usesT8420XAttachedMediaProfile,
   buildT8200LiveStartPayload,
   buildT8200LiveStartValue,
   buildTimedCameraLightControlValue,
@@ -278,6 +280,29 @@ test("omits the optional extension only from the exact standalone T8423 request"
       ...expected, data: { ...expected.data, extValue: 1000 },
     });
   }
+});
+
+test("the T8420X live start matches the app's single_no_ext recipe exactly", () => {
+  const body = JSON.parse(buildT8420XLiveStartValue(0, "test-account", "test-modulus"));
+  assert.deepEqual(body, {
+    commandType: 1000, data: {
+      cmd: 1000, mChannel: 0, account_id: "test-account", mValueStrSub: "test-account",
+      mValue3: 0, mValue5: 0, restore: 0, video_type: 12, encryptkey: "test-modulus",
+      entrytype: 0, accountId: "test-account", camera_type: 0, ivalue: 1, streamtype: 0,
+    },
+  });
+  assert.throws(() => buildT8420XLiveStartValue(0, "", "test-modulus"));
+  assert.throws(() => buildT8420XLiveStartValue(0, "test-account", ""));
+  const generic = buildStandaloneLiveStartValue("T8420X", 0, "test-account", "test-modulus", 1_791_644_400_000);
+  assert.equal(generic, JSON.stringify(body));
+});
+
+test("routes only the T8420X behind HomeBase 3 to the attached single_no_ext media profile", () => {
+  assert.equal(usesT8420XAttachedMediaProfile({ cameraModel: "T8420X", stationModel: "T8030", stationDeviceType: 18 }), true);
+  assert.equal(usesT8420XAttachedMediaProfile({ cameraModel: "T8420", stationModel: "T8030", stationDeviceType: 18 }), false);
+  assert.equal(usesT8420XAttachedMediaProfile({ cameraModel: "T8420X", stationModel: "T8010", stationDeviceType: 0 }), false);
+  assert.equal(usesT8420XAttachedMediaProfile({ cameraModel: "T8420X" }), false);
+  assert.equal(usesT8420XAttachedMediaProfile({}), false);
 });
 
 test("labels a standalone live start as level-one frame type 11", () => {
